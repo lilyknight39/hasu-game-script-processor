@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test files (保留用于文档的特定测试)
+test_*.json
+!test_sample/
+!final_test/
+
+# Intermediate chunks (中间版本，已有final版本)
+chunks_cleaned.json
+chunks_standard.json
+
+# Empty test files
+*_output.json
+test_fix*.json
+test_parser.json
+test_structured.json
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Logs
+*.log
+*.log.*
+
+# Large files (保留压缩版本)
+final_chunks.json
+raw_chunks.json
+chunks.json
+
+# Dify import (如需版本控制请注释此行)
+# dify_import.csv
+
+# Temporary files
+*.tmp
+temp_*.json
