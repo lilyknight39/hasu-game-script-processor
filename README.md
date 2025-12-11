@@ -1,8 +1,8 @@
-# Visual Novel剧本智能分块工具使用指南
+# 链接！ 喜欢！ 爱直播！ 剧本智能分块工具使用指南
 
 ## 概述
 
-本工具为Visual Novel/Galgame剧本文档提供智能分块预处理，专为Dify知识库优化。通过语义感知的分块策略，保持剧本的场景完整性、对话连贯性和叙事性。
+本工具为 链接！ 喜欢！ 爱直播！ 剧本文档提供智能分块预处理，专为 LangChain 知识库优化。通过语义感知的分块策略，保持剧本的场景完整性、对话连贯性和叙事性。
 
 ## 快速开始
 
@@ -235,7 +235,7 @@ python embedding_optimizer.py test_chunks_v2.json -o optimized_chunks.json
 ### 核心文件
 
 ```
-game-script-processor/
+hasu-game-script-processor/
 ├── 核心工具
 │   ├── vn_chunker.py              # 智能分块工具
 │   ├── embedding_optimizer.py     # 语义优化器

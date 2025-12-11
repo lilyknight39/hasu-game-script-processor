@@ -128,7 +128,7 @@ old_script_converter.py (6.6KB)
 ## 📂 目录结构
 
 ```
-game-script-processor/
+hasu-game-script-processor/
 ├── txt/                          # 源文件目录（346个txt文件）
 ├── docs/                         # 文档和归档目录
 │   ├── analysis/                # 分析结果
