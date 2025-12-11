@@ -8,16 +8,30 @@
 
 ### 基本用法
 
+# 1. 智能分块
+
 ```bash
 # 处理单个目录下的所有txt文件
-python3 vn_chunker.py txt/ -o output_chunks.json
+python3 vn_chunker.py txt/ -o chunks.json
 
 # 自定义参数
 python3 vn_chunker.py txt/ \
-  --output optimized_chunks.json \
+  --output chunks.json \
   --target-size 2000 \
   --max-size 3000 \
   --overlap 200
+```
+
+# 2.（可选） 基于语义的智能合并
+
+```bash
+python embedding_optimizer.py chunks.json -o optimized_chunks.json
+```
+
+# 3.（可选） 删除冗余数据
+
+```bash
+python3 optimizer.py optimized_chunks.json optimized_optimized_chunks.json
 ```
 
 ### 参数说明
@@ -69,7 +83,7 @@ python3 validate_chunks.py output_chunks.json
 
 ## 输出格式
 
-生成的JSON文件格式（Dify兼容）：
+生成的JSON文件格式：
 
 ```json
 {
@@ -183,7 +197,8 @@ bash install_embedding_optimizer.sh
 conda activate vn_chunker_env  # 或 source vn_chunker_env/bin/activate
 
 # 3. 运行优化
-python embedding_optimizer.py test_chunks_v2.json -o optimized_chunks.json
+python embedding_optimizer.py chunks.json -o optimized_chunks.json
+
 ```
 
 **优化效果：**
@@ -200,30 +215,6 @@ python embedding_optimizer.py test_chunks_v2.json -o optimized_chunks.json
 - BGE-M3模型已加载
 - API地址：http://192.168.123.113:9997（可配置）
 
-## 后续优化
-
-可选的改进方向：
-
-1. **小Chunk过滤/合并**：
-   ```python
-   # 合并相邻的小chunks
-   MIN_MERGE_SIZE = 100
-   # 实现逻辑...
-   ```
-
-2. **基于embedding的场景边界检测**：
-   使用向量相似度辅助判断语义边界
-
-3. **多线程处理**：
-   并行处理大量文件提升速度
-
-## 技术支持
-
-如遇到问题：
-1. 检查txt文件编码是否为UTF-8
-2. 确认文件格式与示例一致
-3. 查看validation工具的详细报告
-
 ---
 
 **最后更新**: 2025-12-11
@@ -239,13 +230,13 @@ hasu-game-script-processor/
 ├── 核心工具
 │   ├── vn_chunker.py              # 智能分块工具
 │   ├── embedding_optimizer.py     # 语义优化器
-│   ├── optimize_for_dify.py       # Dify优化
+│   ├── optimizer.py               # 冗余数据优化
 │   └── convert_to_dify_csv.py     # CSV转换
 │
 ├── 输出文件
 │   ├── final_chunks.json.zip      # 最终chunks（版本控制）
 │   ├── dify_import.csv            # Dify导入文件
-│   └── chunks.json                # 当前版本（不追踪）
+│   └── chunks.json                # 当前版本
 │
 ├── 配置文件
 │   ├── config.yaml                # 工具配置
@@ -287,41 +278,3 @@ bash cleanup_old_files.sh --no-backup
 - 删除中间版本chunks
 - 移动分析文件到 `docs/analysis/`
 - 自动创建备份（除非使用 `--no-backup`）
-
-### 版本控制策略
-
-`.gitignore` 已配置为：
-- ✅ **追踪**: Python脚本、配置文件、文档、压缩包
-- ❌ **忽略**: 测试文件、大JSON文件、Python缓存、虚拟环境
-
-大文件建议：
-- 使用 `final_chunks.json.zip` (2MB) 而非 `final_chunks.json` (18MB)
-- CSV文件可选择性追踪（根据团队需求）
-
----
-
-## 完整Dify导入工作流
-
-```bash
-# 步骤1: 生成标准格式chunks (完整metadata)
-python3 vn_chunker.py txt/ -o chunks_standard.json
-# 输出: 1636 chunks, 18.4 MB
-
-# 步骤2: Embedding语义优化 (合并相似chunks)
-python3 embedding_optimizer.py chunks_standard.json -o final_chunks.json
-# 输出: ~1626 chunks, 语义合并优化
-
-# 步骤3: 转换为Dify CSV (元数据显性化)
-python3 convert_to_dify_csv.py final_chunks.json -o dify_import.csv
-# 输出: 4.4 MB CSV, 可直接导入Dify Knowledge Base
-```
-
-### CSV格式说明
-- **text**: 包含环境上下文(时间、地点、角色) + 剧本内容(含表情/动作标注)
-- **keywords**: 场景ID、角色名、地点等,用于检索
-- **scene_id**: chunk唯一标识符
-
-### 优化效果
-- 原始数据: 18.4 MB → 最终CSV: 4.4 MB (减少76%)
-- 元数据显性化: LLM可完美理解场景环境和角色情绪
-- 支持精准检索: 基于keywords定位相关场景
