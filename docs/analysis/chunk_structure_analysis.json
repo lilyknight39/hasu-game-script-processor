@@ -1,0 +1,437 @@
+{
+  "chunk_id": "story_main_10401105_scene_000",
+  "content": "花帆: ありがとうございましたー！\nセラス: ましたー。\n花帆: えへへ。[Space][Space]生徒会長さん、泣いてたね。 [表情:NORMAL_EGAO] [动作:花帆汎用3_片足重心]\nセラス: うん。[r]でも、よかった。 [表情:NORMAL_HOHOEMI] [动作:頷く]\nセラス: たくさんの人が集まってくれたおかげで……[r]スクールアイドル部だけじゃなくて、ぜんぶの部が、ちゃんとお別れできる。 [表情:NORMAL_HOHOEMI] [动作:胸に手を置く（両手）]\n花帆: お別れ……。[r]そっか、そうだよね。 [动作:通常立ち]\n花帆: 学校は、なくなっちゃうんだよね。 [动作:うつむく（下方向）]\nセラス: ……うん。\n花帆: 部活動してるみんな、喜んでるね。 [表情:NORMAL_HOHOEMI, →ADV_SETSUNAI] [动作:通常立ち]\nセラス: 廃校までのタイムリミットの中、過ごしてたはずなのに。[r]わたし、これが当たり前の景色だと思ってた。 [动作:上を向く（正面）]\nセラス: 先輩と、後輩。[Space][Space]同級生。[r]みんなで放課後、いっぱい練習して。 [表情:NORMAL_HOHOEMI] [动作:胸元で手を握る（片手）]\nセラス: へとへとになって、木陰で風に当たったり。[r]水飲み場に、走っていったり。 [表情:NORMAL_EGAO] [动作:胸元で手を握る（片手）]\nセラス: ずっと変わらない、続いていく当たり前のもの。 [表情:NORMAL_EGAO]\nセラス: でもそれがどんなに自分にとって大事なのか、[r]よくわかった、気がする。 [表情:NORMAL_HOHOEMI]\nセラス: ありがとう、花ちゃん。 [表情:NORMAL_EGAO] [动作:お腹の前で祈る]\n花帆: そ、そんなぁ……あたしは別に、ぜんぜん。 [表情:NORMAL_HOHOEMI] [动作:こめかみ辺りをかく（人差し指で）]\n花帆: みんなの力だよ。[Space][Space]みんなの。 [表情:NORMAL_NIKKORI, →NORMAL_EGAO] [动作:梢汎用3_胸の前で手を握る]\nセラス: 蓮ノ空の人だけじゃなくて、みんなに言いたいんだ。[r]力を貸してくれた全員に、ありがとうって。 [表情:NORMAL_EGAO] [动作:胸に手を置く（右）]\nセラス: 花ちゃんは、その最初のひとり。 [表情:NORMAL_HOHOEMI]\n花帆: えへへ……。[r]だったら、どういたしまして。 [表情:NORMAL_HOHOEMI] [动作:恥ずかしげに頬をかく身体揺れ抑制]\nセラス: うん。 [表情:NORMAL_EGAO] [动作:慈汎用4差分_手を後ろで組んで少し胸を張る]\n花帆: わ、見て見て！[r]蓮ノ空のスクコネポストにも、こんなに反応が！\n花帆: ほらほら、こんなにたくさんの人が、瑞河のプレーオフを喜んでるよ！ [表情:NORMAL_HOHOEMI] [动作:画面を操作して動画を見せる]\nセラス: うん……。[r]あ、お姉さん。 [表情:NORMAL_EGAO, →NORMAL_TUUJO]\n花帆: え？[Space][Space]せっちゃんのお姉さん！？[r]どれどれ！？ [表情:ADV_ODOROKI_small, →NORMAL_EGAO]\nセラス: じゃなくて。[r]わたしをスクールアイドル部に誘ってくれた、お姉さん方。 [表情:ADV_TERE] [动作:通常立ち]\n花帆: あ、病院に来てくれたっていう？ [表情:NORMAL_HOHOEMI] [动作:スマホを持った状態で顔を上げる]\nセラス: うん……。[r]見ててくれたんだ。 [表情:NORMAL_HOHOEMI] [动作:うつむく（下方向）]\n花帆: えへへ、どれどれ～。 [动作:スマホ片手に頬に指を当てて首をかしげる]\nセラス: うっ……目の前で読まれるの、ちょっと、恥ずかしい、かも……。 [表情:NORMAL_IZIKERU] [动作:うつむく（横方向）]\n花帆: そう？[r]じゃあ、後で帰ってから読もうっと。 [表情:ADV_AWATERU, →NORMAL_EGAO] [动作:通常立ち]\n花帆: ……『瑞河の廃校と、セラスちゃんの夢は残念だったけど』……？ [表情:ADV_ODOROKI_small, →ADV_AWATERU] [动作:スマホを見る]\nセラス: ……っ。 [表情:NORMAL_KANASHII, →NORMAL_TUUJO]\n花帆: せっちゃんの、夢……？[r]これって、どういう？ [表情:ADV_SETSUNAI]\nセラス: ……さあ。 [表情:NORMAL_TUUJO]\n花帆: でも、メッセージに……。 [表情:ADV_AWATERU]\nセラス: なんだろうね。[r]わたしなにか言ったのかな。 [表情:LIVE_NIGAWARAI] [动作:こめかみ辺りをかく（人差し指で）]\nセラス: よく、覚えてないや。 [表情:LIVE_NIGAWARAI, →NORMAL_TUUJO] [动作:通常立ち]\n花帆: ……。 [表情:ADV_SETSUNAI]",
+  "metadata": {
+    "chunk_id": "story_main_10401105_scene_000",
+    "scene_id": "story_main_10401105_scene_000",
+    "source_file": "story_main_10401105.txt",
+    "characters": [
+      "綴理",
+      "姫芽",
+      "瑠璃乃",
+      "花帆",
+      "さやか",
+      "小鈴",
+      "セラス",
+      "吟子",
+      "梢",
+      "慈",
+      "泉"
+    ],
+    "location": "",
+    "bgm": "bgm_adv_night_0001",
+    "emotions": {
+      "花帆": "ADV_AWATERU",
+      "セラス": "NORMAL_TUUJO",
+      "泉": "NORMAL_EGAO",
+      "梢": "NORMAL_EGAO",
+      "さやか": "NORMAL_EGAO",
+      "綴理": "NORMAL_HOHOEMI",
+      "瑠璃乃": "NORMAL_EGAO",
+      "慈": "NORMAL_EGAO",
+      "吟子": "NORMAL_EGAO",
+      "姫芽": "NORMAL_EGAO",
+      "小鈴": "NORMAL_EGAO"
+    },
+    "voice_refs": [
+      "vo_adv_10401105_0544_m1031_01@kaho",
+      "vo_adv_10401105_0545_m1052_01@ceras",
+      "vo_adv_10401105_0546_m1031_01@kaho",
+      "vo_adv_10401105_0547_m1052_01@ceras",
+      "vo_adv_10401105_0548_m1052_01@ceras",
+      "vo_adv_10401105_0549_m1031_01@kaho",
+      "vo_adv_10401105_0550_m1031_01@kaho",
+      "vo_adv_10401105_0551_m1052_01@ceras",
+      "vo_adv_10401105_0552_m1031_01@kaho",
+      "vo_adv_10401105_0553_m1052_01@ceras",
+      "vo_adv_10401105_0554_m1052_01@ceras",
+      "vo_adv_10401105_0555_m1052_01@ceras",
+      "vo_adv_10401105_0556_m1052_01@ceras",
+      "vo_adv_10401105_0557_m1052_01@ceras",
+      "vo_adv_10401105_0558_m1031_01@kaho",
+      "vo_adv_10401105_0559_m1031_01@kaho",
+      "vo_adv_10401105_0560_m1052_01@ceras",
+      "vo_adv_10401105_0561_m1031_01@kaho",
+      "vo_adv_10401105_0562_m1052_01@ceras",
+      "vo_adv_10401105_0563_m1031_01@kaho",
+      "vo_adv_10401105_0564_m1031_01@kaho",
+      "vo_adv_10401105_0565_m1052_01@ceras",
+      "vo_adv_10401105_0566_m1031_01@kaho",
+      "vo_adv_10401105_0567_m1052_01@ceras",
+      "vo_adv_10401105_0568_m1031_01@kaho",
+      "vo_adv_10401105_0569_m1052_01@ceras",
+      "vo_adv_10401105_0570_m1031_01@kaho",
+      "vo_adv_10401105_0571_m1052_01@ceras",
+      "vo_adv_10401105_0572_m1031_01@kaho",
+      "vo_adv_10401105_0573_m1031_01@kaho",
+      "vo_adv_10401105_0574_m1052_01@ceras",
+      "vo_adv_10401105_0575_m1031_01@kaho",
+      "vo_adv_10401105_0576_m1052_01@ceras",
+      "vo_adv_10401105_0577_m1031_01@kaho",
+      "vo_adv_10401105_0578_m1052_01@ceras",
+      "vo_adv_10401105_0579_m1052_01@ceras",
+      "vo_adv_10401105_0580_m1031_01@kaho"
+    ],
+    "chunk_type": "scene",
+    "token_count": 1169,
+    "dialogue_count": 39,
+    "time_period": "night",
+    "weather": "",
+    "scene_type": "",
+    "dialogues": [
+      {
+        "character": "花帆",
+        "text": "ありがとうございましたー！",
+        "voice_ref": "vo_adv_10401105_0544_m1031_01@kaho",
+        "emotion_before": null,
+        "emotion_after": null,
+        "action": null,
+        "action_desc": ""
+      },
+      {
+        "character": "セラス",
+        "text": "ましたー。",
+        "voice_ref": "vo_adv_10401105_0545_m1052_01@ceras",
+        "emotion_before": null,
+        "emotion_after": null,
+        "action": null,
+        "action_desc": ""
+      },
+      {
+        "character": "花帆",
+        "text": "えへへ。[Space][Space]生徒会長さん、泣いてたね。",
+        "voice_ref": "vo_adv_10401105_0546_m1031_01@kaho",
+        "emotion_before": null,
+        "emotion_after": "NORMAL_EGAO",
+        "action": "mot_01_30012",
+        "action_desc": "花帆汎用3_片足重心"
+      },
+      {
+        "character": "セラス",
+        "text": "うん。[r]でも、よかった。",
+        "voice_ref": "vo_adv_10401105_0547_m1052_01@ceras",
+        "emotion_before": null,
+        "emotion_after": "NORMAL_HOHOEMI",
+        "action": "mot_00_05330",
+        "action_desc": "頷く"
+      },
+      {
+        "character": "セラス",
+        "text": "たくさんの人が集まってくれたおかげで……[r]スクールアイドル部だけじゃなくて、ぜんぶの部が、ちゃんとお別れできる。",
+        "voice_ref": "vo_adv_10401105_0548_m1052_01@ceras",
+        "emotion_before": null,
+        "emotion_after": "NORMAL_HOHOEMI",
+        "action": "mot_00_00490",
+        "action_desc": "胸に手を置く（両手）"
+      },
+      {
+        "character": "花帆",
+        "text": "お別れ……。[r]そっか、そうだよね。",
+        "voice_ref": "vo_adv_10401105_0549_m1031_01@kaho",
+        "emotion_before": null,
+        "emotion_after": null,
+        "action": "mot_00_00010",
+        "action_desc": "通常立ち"
+      },
+      {
+        "character": "花帆",
+        "text": "学校は、なくなっちゃうんだよね。",
+        "voice_ref": "vo_adv_10401105_0550_m1031_01@kaho",
+        "emotion_before": null,
+        "emotion_after": null,
+        "action": "mot_00_00240",
+        "action_desc": "うつむく（下方向）"
+      },
+      {
+        "character": "セラス",
+        "text": "……うん。",
+        "voice_ref": "vo_adv_10401105_0551_m1052_01@ceras",
+        "emotion_before": null,
+        "emotion_after": null,
+        "action": null,
+        "action_desc": ""
+      },
+      {
+        "character": "花帆",
+        "text": "部活動してるみんな、喜んでるね。",
+        "voice_ref": "vo_adv_10401105_0552_m1031_01@kaho",
+        "emotion_before": "NORMAL_HOHOEMI",
+        "emotion_after": "ADV_SETSUNAI",
+        "action": "mot_00_00010",
+        "action_desc": "通常立ち"
+      },
+      {
+        "character": "セラス",
+        "text": "廃校までのタイムリミットの中、過ごしてたはずなのに。[r]わたし、これが当たり前の景色だと思ってた。",
+        "voice_ref": "vo_adv_10401105_0553_m1052_01@ceras",
+        "emotion_before": null,
+        "emotion_after": null,
+        "action": "mot_00_00421",
+        "action_desc": "上を向く（正面）"
+      },
+      {
+        "character": "セラス",
+        "text": "先輩と、後輩。[Space][Space]同級生。[r]みんなで放課後、いっぱい練習して。",
+        "voice_ref": "vo_adv_10401105_0554_m1052_01@ceras",
+        "emotion_before": null,
+        "emotion_after": "NORMAL_HOHOEMI",
+        "action": "mot_00_01600",
+        "action_desc": "胸元で手を握る（片手）"
+      },
+      {
+        "character": "セラス",
+        "text": "へとへとになって、木陰で風に当たったり。[r]水飲み場に、走っていったり。",
+        "voice_ref": "vo_adv_10401105_0554_m1052_01@ceras",
+        "emotion_before": "NORMAL_EGAO",
+        "emotion_after": null,
+        "action": "mot_00_01600",
+        "action_desc": "胸元で手を握る（片手）"
+      },
+      {
+        "character": "セラス",
+        "text": "ずっと変わらない、続いていく当たり前のもの。",
+        "voice_ref": "vo_adv_10401105_0555_m1052_01@ceras",
+        "emotion_before": "NORMAL_EGAO",
+        "emotion_after": null,
+        "action": null,
+        "action_desc": ""
+      },
+      {
+        "character": "セラス",
+        "text": "でもそれがどんなに自分にとって大事なのか、[r]よくわかった、気がする。",
+        "voice_ref": "vo_adv_10401105_0556_m1052_01@ceras",
+        "emotion_before": "NORMAL_HOHOEMI",
+        "emotion_after": null,
+        "action": null,
+        "action_desc": ""
+      },
+      {
+        "character": "セラス",
+        "text": "ありがとう、花ちゃん。",
+        "voice_ref": "vo_adv_10401105_0557_m1052_01@ceras",
+        "emotion_before": null,
+        "emotion_after": "NORMAL_EGAO",
+        "action": "mot_02_02100",
+        "action_desc": "お腹の前で祈る"
+      },
+      {
+        "character": "花帆",
+        "text": "そ、そんなぁ……あたしは別に、ぜんぜん。",
+        "voice_ref": "vo_adv_10401105_0558_m1031_01@kaho",
+        "emotion_before": null,
+        "emotion_after": "NORMAL_HOHOEMI",
+        "action": "mot_00_00690",
+        "action_desc": "こめかみ辺りをかく（人差し指で）"
+      },
+      {
+        "character": "花帆",
+        "text": "みんなの力だよ。[Space][Space]みんなの。",
+        "voice_ref": "vo_adv_10401105_0559_m1031_01@kaho",
+        "emotion_before": "NORMAL_NIKKORI",
+        "emotion_after": "NORMAL_EGAO",
+        "action": "mot_00_30032",
+        "action_desc": "梢汎用3_胸の前で手を握る"
+      },
+      {
+        "character": "セラス",
+        "text": "蓮ノ空の人だけじゃなくて、みんなに言いたいんだ。[r]力を貸してくれた全員に、ありがとうって。",
+        "voice_ref": "vo_adv_10401105_0560_m1052_01@ceras",
+        "emotion_before": "NORMAL_EGAO",
+        "emotion_after": "NORMAL_EGAO",
+        "action": "mot_00_00480",
+        "action_desc": "胸に手を置く（右）"
+      },
+      {
+        "character": "セラス",
+        "text": "花ちゃんは、その最初のひとり。",
+        "voice_ref": "vo_adv_10401105_0560_m1052_01@ceras",
+        "emotion_before": "NORMAL_HOHOEMI",
+        "emotion_after": null,
+        "action": null,
+        "action_desc": ""
+      },
+      {
+        "character": "花帆",
+        "text": "えへへ……。[r]だったら、どういたしまして。",
+        "voice_ref": "vo_adv_10401105_0561_m1031_01@kaho",
+        "emotion_before": null,
+        "emotion_after": "NORMAL_HOHOEMI",
+        "action": "mot_01_03011",
+        "action_desc": "恥ずかしげに頬をかく身体揺れ抑制"
+      },
+      {
+        "character": "セラス",
+        "text": "うん。",
+        "voice_ref": "vo_adv_10401105_0562_m1052_01@ceras",
+        "emotion_before": null,
+        "emotion_after": "NORMAL_EGAO",
+        "action": "mot_00_30067",
+        "action_desc": "慈汎用4差分_手を後ろで組んで少し胸を張る"
+      },
+      {
+        "character": "花帆",
+        "text": "わ、見て見て！[r]蓮ノ空のスクコネポストにも、こんなに反応が！",
+        "voice_ref": "vo_adv_10401105_0563_m1031_01@kaho",
+        "emotion_before": null,
+        "emotion_after": null,
+        "action": null,
+        "action_desc": ""
+      },
+      {
+        "character": "花帆",
+        "text": "ほらほら、こんなにたくさんの人が、瑞河のプレーオフを喜んでるよ！",
+        "voice_ref": "vo_adv_10401105_0564_m1031_01@kaho",
+        "emotion_before": "NORMAL_HOHOEMI",
+        "emotion_after": null,
+        "action": "mot_00_02500",
+        "action_desc": "画面を操作して動画を見せる"
+      },
+      {
+        "character": "セラス",
+        "text": "うん……。[r]あ、お姉さん。",
+        "voice_ref": "vo_adv_10401105_0565_m1052_01@ceras",
+        "emotion_before": "NORMAL_EGAO",
+        "emotion_after": "NORMAL_TUUJO",
+        "action": null,
+        "action_desc": ""
+      },
+      {
+        "character": "花帆",
+        "text": "え？[Space][Space]せっちゃんのお姉さん！？[r]どれどれ！？",
+        "voice_ref": "vo_adv_10401105_0566_m1031_01@kaho",
+        "emotion_before": "ADV_ODOROKI_small",
+        "emotion_after": "NORMAL_EGAO",
+        "action": null,
+        "action_desc": ""
+      },
+      {
+        "character": "セラス",
+        "text": "じゃなくて。[r]わたしをスクールアイドル部に誘ってくれた、お姉さん方。",
+        "voice_ref": "vo_adv_10401105_0567_m1052_01@ceras",
+        "emotion_before": "ADV_TERE",
+        "emotion_after": null,
+        "action": "mot_00_00010",
+        "action_desc": "通常立ち"
+      },
+      {
+        "character": "花帆",
+        "text": "あ、病院に来てくれたっていう？",
+        "voice_ref": "vo_adv_10401105_0568_m1031_01@kaho",
+        "emotion_before": "NORMAL_HOHOEMI",
+        "emotion_after": null,
+        "action": "mot_00_20392",
+        "action_desc": "スマホを持った状態で顔を上げる"
+      },
+      {
+        "character": "セラス",
+        "text": "うん……。[r]見ててくれたんだ。",
+        "voice_ref": "vo_adv_10401105_0569_m1052_01@ceras",
+        "emotion_before": "NORMAL_HOHOEMI",
+        "emotion_after": null,
+        "action": "mot_00_00240",
+        "action_desc": "うつむく（下方向）"
+      },
+      {
+        "character": "花帆",
+        "text": "えへへ、どれどれ～。",
+        "voice_ref": "vo_adv_10401105_0570_m1031_01@kaho",
+        "emotion_before": null,
+        "emotion_after": null,
+        "action": "mot_00_01531",
+        "action_desc": "スマホ片手に頬に指を当てて首をかしげる"
+      },
+      {
+        "character": "セラス",
+        "text": "うっ……目の前で読まれるの、ちょっと、恥ずかしい、かも……。",
+        "voice_ref": "vo_adv_10401105_0571_m1052_01@ceras",
+        "emotion_before": null,
+        "emotion_after": "NORMAL_IZIKERU",
+        "action": "mot_01_00250",
+        "action_desc": "うつむく（横方向）"
+      },
+      {
+        "character": "花帆",
+        "text": "そう？[r]じゃあ、後で帰ってから読もうっと。",
+        "voice_ref": "vo_adv_10401105_0572_m1031_01@kaho",
+        "emotion_before": "ADV_AWATERU",
+        "emotion_after": "NORMAL_EGAO",
+        "action": "mot_00_00010",
+        "action_desc": "通常立ち"
+      },
+      {
+        "character": "花帆",
+        "text": "……『瑞河の廃校と、セラスちゃんの夢は残念だったけど』……？",
+        "voice_ref": "vo_adv_10401105_0573_m1031_01@kaho",
+        "emotion_before": "ADV_ODOROKI_small",
+        "emotion_after": "ADV_AWATERU",
+        "action": "mot_00_20390",
+        "action_desc": "スマホを見る"
+      },
+      {
+        "character": "セラス",
+        "text": "……っ。",
+        "voice_ref": "vo_adv_10401105_0574_m1052_01@ceras",
+        "emotion_before": "NORMAL_KANASHII",
+        "emotion_after": "NORMAL_TUUJO",
+        "action": null,
+        "action_desc": ""
+      },
+      {
+        "character": "花帆",
+        "text": "せっちゃんの、夢……？[r]これって、どういう？",
+        "voice_ref": "vo_adv_10401105_0575_m1031_01@kaho",
+        "emotion_before": "ADV_SETSUNAI",
+        "emotion_after": null,
+        "action": null,
+        "action_desc": ""
+      },
+      {
+        "character": "セラス",
+        "text": "……さあ。",
+        "voice_ref": "vo_adv_10401105_0576_m1052_01@ceras",
+        "emotion_before": "NORMAL_TUUJO",
+        "emotion_after": null,
+        "action": null,
+        "action_desc": ""
+      },
+      {
+        "character": "花帆",
+        "text": "でも、メッセージに……。",
+        "voice_ref": "vo_adv_10401105_0577_m1031_01@kaho",
+        "emotion_before": "ADV_AWATERU",
+        "emotion_after": null,
+        "action": null,
+        "action_desc": ""
+      },
+      {
+        "character": "セラス",
+        "text": "なんだろうね。[r]わたしなにか言ったのかな。",
+        "voice_ref": "vo_adv_10401105_0578_m1052_01@ceras",
+        "emotion_before": "LIVE_NIGAWARAI",
+        "emotion_after": null,
+        "action": "mot_01_00690",
+        "action_desc": "こめかみ辺りをかく（人差し指で）"
+      },
+      {
+        "character": "セラス",
+        "text": "よく、覚えてないや。",
+        "voice_ref": "vo_adv_10401105_0579_m1052_01@ceras",
+        "emotion_before": "LIVE_NIGAWARAI",
+        "emotion_after": "NORMAL_TUUJO",
+        "action": "mot_00_00010",
+        "action_desc": "通常立ち"
+      },
+      {
+        "character": "花帆",
+        "text": "……。",
+        "voice_ref": "vo_adv_10401105_0580_m1031_01@kaho",
+        "emotion_before": "ADV_SETSUNAI",
+        "emotion_after": null,
+        "action": null,
+        "action_desc": ""
+      }
+    ]
+  },
+  "parent_chunk_id": null,
+  "overlap_prev": ""
+}

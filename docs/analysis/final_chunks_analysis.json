@@ -1,0 +1,9 @@
+{
+  "total_chunks": 1626,
+  "avg_similarity": 0.6399471928632626,
+  "min_similarity": 0.0,
+  "max_similarity": 0.9211509230109965,
+  "std_similarity": 0.13898079520487716,
+  "high_similarity_pairs": 138,
+  "low_similarity_pairs": 352
+}

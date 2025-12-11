@@ -1,0 +1,20 @@
+# config.yaml
+dify:
+  api_url: "https://api.dify.ai/v1"
+  api_key: "your-api-key"
+  dataset_id: "your-dataset-id"
+
+chunking:
+  min_chunk_size: 800
+  max_chunk_size: 2000
+  scene_markers:
+    - "## File:"
+    - "> *蓮ノ空女学院"
+    - "> *場面は"
+  
+  character_pattern: '\*\*(.*?)\*\*:'
+  
+processing:
+  add_metadata: true
+  format_output: true
+  preserve_structure: true
