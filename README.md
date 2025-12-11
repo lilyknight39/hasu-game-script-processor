@@ -93,38 +93,25 @@ python3 validate_chunks.py output_chunks.json
 }
 ```
 
-## Dify集成
+## LangChain集成
 
-### 方法1：直接导入JSON
+生成的JSON文件可直接用于LangChain知识库，格式完全兼容。每个chunk包含：
+- `content`: 剧本内容
+- `metadata`: 丰富的元数据（角色、场景、BGM等）
+- `chunk_id`: 唯一标识符
 
-1. 在Dify知识库中选择"上传文件"
-2. 上传生成的JSON文件
-3. 配置参数：
-   - 分块策略：自定义（不再分块）
-   - 检索模式：语义检索
-   - Embedding模型：推荐中日文模型
+推荐配置：
+- **分块策略**: 已预分块，无需再次分割
+- **检索模式**: 语义检索（Semantic Search）
+- **Embedding模型**: 推荐中日文模型（如BGE-M3）
 
-### 方法2：转换为文本文件
+### Dify导入
 
-如需要每个chunk作为单独文件：
-
-```python
-import json
-
-with open('output_chunks.json', 'r', encoding='utf-8') as f:
-    chunks = json.load(f)
-
-for chunk in chunks:
-    filename = f"chunks/{chunk['chunk_id']}.txt"
-    with open(filename, 'w', encoding='utf-8') as f:
-        # 写入内容
-        f.write(chunk['content'])
-        f.write('\n\n---METADATA---\n')
-        # 写入元数据
-        f.write(f"Characters: {', '.join(chunk['metadata']['characters'])}\n")
-        f.write(f"Location: {chunk['metadata']['location']}\n")
-        f.write(f"Dialogues: {chunk['metadata']['dialogue_count']}\n")
+如需导入Dify，请使用CSV格式：
+```bash
+python3 convert_to_dify_csv.py final_chunks.json -o dify_import.csv
 ```
+详见完整工作流章节。
 
 ## 核心功能
 
