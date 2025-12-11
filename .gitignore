@@ -1,4 +1,31 @@
+# ====================
+# 原始数据和生成文件（不要上传到GitHub）
+# ====================
+
+# 原始剧本数据
+txt/
+
+# 测试数据目录
+test_sample/
+final_test/
+
+# 生成的数据文件
+*.json
+!config.yaml
+!motion_mappings.json
+!package.json
+!package-lock.json
+
+# CSV输出文件
+dify_import.csv
+
+# 压缩包（如需分享，请单独上传到Release）
+*.zip
+
+# ====================
 # Python
+# ====================
+
 __pycache__/
 *.py[cod]
 *$py.class
