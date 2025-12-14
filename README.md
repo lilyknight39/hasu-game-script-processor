@@ -19,7 +19,7 @@
 
 ```bash
 # 基本用法
-python3 vn_chunker.py txt/ -o chunks.json
+python3 vn_chunker.py txt/ --fine-grained -o chunks.json 
 ```
 
 ### 2. 语义优化与清洗 (Optimization & Cleaning)
