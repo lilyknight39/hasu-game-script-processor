@@ -45,14 +45,14 @@ python embedding_optimizer.py chunks.json -o optimized_final.json
 ### Step 1: 运行分块器 (`vn_chunker.py`)
 
 ```bash
-python3 vn_chunker.py [输入目录] [参数]
+python3 vn_chunker.py [输入目录] [参数] --fine-grained
 ```
 
 **常用参数：**
-- `--target-size`: 目标 Chunk 大小 (默认 2000 tokens)
-- `--max-size`: 最大 Chunk 大小 (默认 3000 tokens)
+- `--target-size`: 目标 Chunk 大小 (默认 2000 tokens, 细粒度模式下自动设为 600)
+- `--max-size`: 最大 Chunk 大小 (默认 3000 tokens, 细粒度模式下自动设为 800)
 - `--overlap`: 上下文重叠窗口 (默认 200 tokens)
-- `--fine-grained`: 细粒度模式 (生成更多小 Chunk，适合后续配合 Embedding 优化)
+- `--fine-grained`: 细粒度模式 (推荐！生成 600-800 token 的小碎片，为后续语义合并提供基础)
 
 ### Step 2: 运行优化器 (`embedding_optimizer.py`)
 
@@ -63,6 +63,7 @@ python embedding_optimizer.py [输入文件] -o [输出文件] [参数]
 **常用参数：**
 - `--api-url`: Embedding API 地址 (默认 `http://192.168.123.113:9997`)
 - `--model-uid`: 模型及其 ID (默认 `bge-m3`)
+- `--similarity-threshold`: 相似度阈值 (默认 0.82，适合合并细粒度碎片)
 - `--no-clean`: 仅合并但不执行数据清洗 (不推荐)
 
 ### 辅助工具

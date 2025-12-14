@@ -164,11 +164,26 @@ class VisualNovelChunker:
             fine_grained_mode: 细粒度模式（产生更多小chunks，配合optimizer使用）
         """
         self.overlap_lines = overlap_lines
-        self.target_chunk_size = target_chunk_size
-        self.min_chunk_size = min_chunk_size
-        self.max_chunk_size = max_chunk_size
-        self.overlap_tokens = overlap_tokens
         self.fine_grained_mode = fine_grained_mode
+        self.overlap_tokens = overlap_tokens
+        
+        # 细粒度模式下，强制调整默认参数以生成更小的块
+        if fine_grained_mode:
+            # 如果使用的是默认的大尺寸参数，则调整为细粒度参数
+            if target_chunk_size == 2000:
+                self.target_chunk_size = 600
+            else:
+                self.target_chunk_size = target_chunk_size
+                
+            if max_chunk_size == 3000:
+                self.max_chunk_size = 800
+            else:
+                self.max_chunk_size = max_chunk_size
+        else:
+            self.target_chunk_size = target_chunk_size
+            self.max_chunk_size = max_chunk_size
+            
+        self.min_chunk_size = min_chunk_size
         
         # 编译正则表达式
         self.scene_patterns = [re.compile(p, re.MULTILINE) for p in self.SCENE_BOUNDARY_PATTERNS]

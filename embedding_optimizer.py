@@ -28,8 +28,8 @@ class EmbeddingOptimizer:
                  xinference_url: str = "http://192.168.123.113:9997",
                  model_uid: str = "bge-m3",
                  similarity_threshold: float = 0.82,  # 降低以适应细粒度模式
-                 min_merge_size: int = 100,
-                 max_merged_size: int = 1800):  # 降低以避免超大chunks
+                 min_merge_size: int = 300,
+                 max_merged_size: int = 2000):  # 提高到2000以容纳合并内容
         """
         初始化优化器
         
@@ -39,10 +39,10 @@ class EmbeddingOptimizer:
             similarity_threshold: 相似度阈值（超过此值考虑合并）
                                 默认0.82适配细粒度模式（更多小chunks）
                                 如使用默认chunker模式，建议提高到0.85-0.88
-            min_merge_size: 最小合并大小
+            min_merge_size: 最小合并大小 (默认300，用于合并细碎片段)
             max_merged_size: 合并后的最大大小限制
-                           默认1800适配细粒度模式
-                           如使用默认chunker模式，可提高到2000-2500
+                           默认2000适配BGE-M3 (8k window)
+                           如使用默认chunker模式，可提高到2500
         """
         self.xinference_url = xinference_url
         self.model_uid = model_uid
@@ -349,10 +349,29 @@ class EmbeddingOptimizer:
         """
         logger.info(f"开始优化 {len(chunks)} 个chunks")
         
-        # 1. 获取所有chunks的embeddings
-        logger.info("计算embeddings...")
-        texts = [chunk['content'] for chunk in chunks]
-        embeddings = self.get_embeddings_batch(texts)
+        # 1. 获取所有chunks的embeddings (带元数据增强)
+        logger.info("计算embeddings (带元数据注入)...")
+        
+        # 构建用于embedding的文本（注入上下文）
+        embedding_texts = []
+        for chunk in chunks:
+            # 提取元数据
+            scene_id = self._get_field(chunk, 'scene_id', '')
+            location = self._get_field(chunk, 'location', '')
+            time_period = self._get_field(chunk, 'time_period', '')
+            chars = self._get_field(chunk, 'characters', [])
+            if isinstance(chars, list):
+                chars_str = ', '.join(chars)
+            else:
+                chars_str = str(chars)
+                
+            # 构造增强文本: [Meta] + Content
+            # 格式: Scene: ... Location: ... Time: ... Chars: ... \n\n Content
+            meta_text = f"Scene: {scene_id}\nLocation: {location}\nTime: {time_period}\nChars: {chars_str}"
+            full_text = f"{meta_text}\n\n{chunk['content']}"
+            embedding_texts.append(full_text)
+            
+        embeddings = self.get_embeddings_batch(embedding_texts)
         
         # 2. 按源文件分组
         file_groups = {}
