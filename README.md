@@ -1,280 +1,119 @@
-# 链接！ 喜欢！ 爱直播！ 剧本智能分块工具使用指南
+# Link! Like! Love Live! 剧本智能分块处理工具
 
-## 概述
+为 Visual Novel / Galgame 剧本（特别是 Link! Like! Love Live!）设计的智能预处理工具，旨在生成专为 RAG (Retrieval-Augmented Generation) 和 LangChain 知识库优化的语义分块。
 
-本工具为 链接！ 喜欢！ 爱直播！ 剧本文档提供智能分块预处理，专为 LangChain 知识库优化。通过语义感知的分块策略，保持剧本的场景完整性、对话连贯性和叙事性。
+## 🌟 核心特性
 
-## 快速开始
+- **语义完整性**：基于场景边界、对话组和语义相似度进行分块，而非简单的字符截断。
+- **元数据丰富**：自动提取角色、表情、动作、场景、时间、天气、BGM 等元数据。
+- **智能对话合并**：自动处理不带语音的旁白和带语音的角色对话，保持上下文连贯。
+- **两阶段优化**：包含基础分块和基于 Embedding 的语义优化清洗流程。
 
-### 基本用法
+## 🛠️ 工作流
 
-# 1. 智能分块
+本项目采用高效的 **两步工作流**：
+
+### 1. 基础分块 (Chunking)
+
+解析原始剧本文件，根据场景变换和对话组生成基础 Chunks。
 
 ```bash
-# 处理单个目录下的所有txt文件
+# 基本用法
 python3 vn_chunker.py txt/ -o chunks.json
-
-# 自定义参数
-python3 vn_chunker.py txt/ \
-  --output chunks.json \
-  --target-size 2000 \
-  --max-size 3000 \
-  --overlap 200
 ```
 
-# 2.（可选） 基于语义的智能合并
+### 2. 语义优化与清洗 (Optimization & Cleaning)
+
+使用 Embedding 模型计算 Chunk 间的语义相似度，合并语义连贯的碎片，并自动清洗冗余数据（如空字段、冗余的动作描述）。
 
 ```bash
-python embedding_optimizer.py chunks.json -o optimized_chunks.json
+# 语义合并 + 自动数据清洗
+python embedding_optimizer.py chunks.json -o optimized_final.json
 ```
 
-# 3.（可选） 删除冗余数据
+*(注意：此步骤已集成原本独立的 `optimizer.py` 功能，无需额外运行其他脚本)*
+
+---
+
+## 🚀 详细使用指南
+
+### 环境准备
+
+确保已安装 Python 3.8+ 及相关依赖。
+对于第二步的语义优化，建议配置 [XInference](https://inference.readthedocs.io/en/latest/) 或兼容 OpenAI API 的 Embedding 服务（默认使用 `bge-m3` 模型）。
+
+### Step 1: 运行分块器 (`vn_chunker.py`)
 
 ```bash
-python3 optimizer.py optimized_chunks.json optimized_optimized_chunks.json
+python3 vn_chunker.py [输入目录] [参数]
 ```
 
-### 参数说明
+**常用参数：**
+- `--target-size`: 目标 Chunk 大小 (默认 2000 tokens)
+- `--max-size`: 最大 Chunk 大小 (默认 3000 tokens)
+- `--overlap`: 上下文重叠窗口 (默认 200 tokens)
+- `--fine-grained`: 细粒度模式 (生成更多小 Chunk，适合后续配合 Embedding 优化)
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `input_dir` | 必需 | 输入目录（包含txt剧本文件） |
-| `-o, --output` | `chunks_output.json` | 输出JSON文件路径 |
-| `--target-size` | `2000` | 目标chunk大小（tokens） |
-| `--min-size` | `400` | 最小chunk大小（tokens） |
-| `--max-size` | `3000` | 最大chunk大小（tokens） |
-| `--overlap` | `200` | 重叠token数 |
-
-## 验证工具
-
-使用验证工具分析生成的chunks质量：
+### Step 2: 运行优化器 (`embedding_optimizer.py`)
 
 ```bash
-python3 validate_chunks.py output_chunks.json
+python embedding_optimizer.py [输入文件] -o [输出文件] [参数]
 ```
 
-输出包括：
-- Chunk大小分布统计
-- 元数据覆盖分析
-- 对话分布分析
-- 场景完整性检查
-- 随机chunk内容抽样
+**常用参数：**
+- `--api-url`: Embedding API 地址 (默认 `http://192.168.123.113:9997`)
+- `--model-uid`: 模型及其 ID (默认 `bge-m3`)
+- `--no-clean`: 仅合并但不执行数据清洗 (不推荐)
 
-## 处理结果
+### 辅助工具
 
-### 当前测试结果（346个文件，5.8MB）
+- **Dify 格式转换**: 将最终 JSON 转换为 Dify 知识库支持的 CSV 格式。
+  ```bash
+  python3 convert_to_dify_csv.py optimized_final.json -o dify_import.csv
+  ```
 
-| 指标 | 结果 |
-|------|------|
-| 总chunks数 | 1,627 |
-| 总tokens数 | 783,086 |
-| 平均chunk大小 | 481 tokens |
-| 对话覆盖率 | 81.9% |
-| 元数据覆盖率 | 78.2%（角色）, 71.8%（场景） |
-| 场景完整保留率 | 98.8%（339/343文件） |
+---
 
-### 对比原配置
+## 📂 项目结构
 
-| 项目 | 原配置 | 优化后 | 改进 |
-|------|--------|--------|------|
-| 分段数 | 129,178 | 1,627 | **-98.7%** ✓ |
-| 平均大小 | ~360 tokens | ~481 tokens | +34% |
-| 场景完整性 | 低 | 高（98.8%） | ✓ |
+```
+.
+├── vn_chunker.py              # [核心] 剧本解析与基础分块器
+├── embedding_optimizer.py     # [核心] 基于语义的合并与数据清洗器
+├── convert_to_dify_csv.py     # [工具] Dify 格式转换工具
+├── validate_chunks.py         # [工具] Chunk 质量验证工具
+├── cleanup_old_files.sh       # [工具] 清理临时文件脚本
+├── motion_mappings.json       # 动作 ID 到描述的映射表
+├── txt/                       # 原始剧本存放目录
+└── docs/                      # 文档与归档
+    └── archived_docs/         # 旧版本文档归档
+```
 
-## 输出格式
+## 📊 数据结构示例
 
-生成的JSON文件格式：
+处理后的 JSON Chunk 结构示例：
 
 ```json
 {
-  "chunk_id": "story_main_10250101_scene_004",
-  "content": "慈: あーもう……最悪\n藤島慈，15歳。少女はこの世の終わりのように...",
-  "metadata": {
-    "chunk_id": "story_main_10250101_scene_004",
-    "scene_id": "scene_04",
-    "source_file": "story_main_10250101.txt",
-    "characters": ["慈"],
-    "location": "学校_教室_昼",
-    "bgm": "bgm_adv_morning_0001",
-    "emotions": {"慈": "NORMAL_NEMUI"},
-    "voice_refs": ["vo_adv_10250101_0008_m1023_01@megumi"],
-    "chunk_type": "scene",
-    "token_count": 156,
-    "dialogue_count": 15
-  },
-  "parent_chunk_id": null,
-  "overlap_prev": ""
+  "id": "story_main_104_scene_001_merged",
+  "content": "...剧本正文内容...",
+  "meta": {
+    "scene": "story_main_104_scene_001",
+    "chars": ["梢", "花帆"],
+    "loc": "学校_中庭",
+    "tokens": 450,
+    "dlgs": [
+      {
+        "char": "梢",
+        "text": "早上好，花帆同学。",
+        "e_bef": "happy"
+      },
+      ...
+    ]
+  }
 }
 ```
 
-## LangChain集成
+## 📝 开发日志
 
-生成的JSON文件可直接用于LangChain知识库，格式完全兼容。每个chunk包含：
-- `content`: 剧本内容
-- `metadata`: 丰富的元数据（角色、场景、BGM等）
-- `chunk_id`: 唯一标识符
-
-推荐配置：
-- **分块策略**: 已预分块，无需再次分割
-- **检索模式**: 语义检索（Semantic Search）
-- **Embedding模型**: 推荐中日文模型（如BGE-M3）
-
-### Dify导入
-
-如需导入Dify，请使用CSV格式：
-```bash
-python3 convert_to_dify_csv.py final_chunks.json -o dify_import.csv
-```
-详见完整工作流章节。
-
-## 核心功能
-
-### 1. 场景边界检测
-
-自动识别以下场景标记：
-- `#场面転換#` / `#場面転換#`
-- `[暗転_イン ... 完了待ち]`
-- 背景切换命令
-
-### 2. 对话提取
-
-支持多种对话格式：
-- `[ノベルテキスト追加 内容 vo_xxx]` - 带语音的对话
-- `[ノベルテキスト追加 内容]` - 纯叙述文本
-- `[メッセージ表示 角色 vo_xxx 内容]` - 角色消息
-
-### 3. 元数据提取
-
-每个chunk包含丰富元数据：
-- **角色列表**：场景中出现的所有角色
-- **场景位置**：背景场景ID
-- **BGM信息**：背景音乐
-- **角色表情**：角色情绪状态
-- **语音引用**：关联的语音文件ID
-
-### 4. 智能分块策略
-
-- **场景优先**：以完整场景为主要分块单元
-- **动态调整**：场景过长自动按对话组分割
-- **重叠策略**：保留200 tokens重叠确保上下文连贯
-- **大小控制**：目标2000 tokens，范围400-3000
-
-## 常见问题
-
-### Q: 为什么有些chunks很小（<100 tokens）？
-
-A: 这些通常是纯视觉场景或场景转换，不包含对话内容。可以通过后处理合并相邻的小chunks，或在Dify中使用检索后过滤。
-
-### Q: 如何处理超大chunks（>3000 tokens）？
-
-A: 脚本会自动按对话组分割超大场景。如果仍超限，可以降低`--max-size`参数值。
-
-### Q: 对话计数准确吗？
-
-A: 脚本统计所有`[ノベルテキスト追加]`和`[メッセージ表示]`标记的内容，覆盖率达81.9%。
-
-### Q: 能处理其他格式的剧本吗？
-
-A: 当前版本专为清理后的txt格式设计。如需支持其他格式，需要修改正则表达式pattern。
-
-## 性能建议
-
-- **大批量处理**：346个文件约需8秒处理
-- **内存占用**：约100MB（处理5.8MB剧本）
-- **建议配置**：Python 3.7+，8GB RAM
-
-## Embedding优化（进阶）
-
-### 基于语义的智能合并
-
-使用本地部署的BGE-M3模型进一步优化chunks：
-
-```bash
-# 1. 安装环境（自动检测conda/venv）
-bash install_embedding_optimizer.sh
-
-# 2. 激活环境
-conda activate vn_chunker_env  # 或 source vn_chunker_env/bin/activate
-
-# 3. 运行优化
-python embedding_optimizer.py chunks.json -o optimized_chunks.json
-
-```
-
-**优化效果：**
-- 小chunks(<100 tokens)减少 50%+
-- 通过语义相似度智能合并
-- 保留所有元数据（包括voice_refs）
-- 提升检索精度
-
-**详细文档：** 参见 [EMBEDDING_OPTIMIZER_GUIDE.md](EMBEDDING_OPTIMIZER_GUIDE.md)
-
-### 配置要求
-
-- 本地XInference服务运行中
-- BGE-M3模型已加载
-- API地址：http://192.168.123.113:9997（可配置）
-
----
-
-**最后更新**: 2025-12-11
-
----
-
-## 项目文件结构
-
-### 核心文件
-
-```
-hasu-game-script-processor/
-├── 核心工具
-│   ├── vn_chunker.py              # 智能分块工具
-│   ├── embedding_optimizer.py     # 语义优化器
-│   ├── optimizer.py               # 冗余数据优化
-│   └── convert_to_dify_csv.py     # CSV转换
-│
-├── 输出文件
-│   ├── final_chunks.json.zip      # 最终chunks（版本控制）
-│   ├── dify_import.csv            # Dify导入文件
-│   └── chunks.json                # 当前版本
-│
-├── 配置文件
-│   ├── config.yaml                # 工具配置
-│   └── motion_mappings.yaml       # 动作映射
-│
-├── 文档
-│   ├── README.md                  # 本文档
-│   ├── PROJECT_FILES.md           # 文件清单
-│   ├── EMBEDDING_OPTIMIZER_GUIDE.md
-│   ├── OPTIMIZED_WORKFLOW.md
-│   └── recall_test_questions.md   # 召回测试问题集
-│
-└── docs/                          # 归档和分析文件
-    ├── analysis/
-    ├── archived_scripts/
-    └── test_data/
-```
-
-详细的文件说明请参阅 [PROJECT_FILES.md](PROJECT_FILES.md)。
-
-### 清理旧文件
-
-如需清理测试生成的临时文件：
-
-```bash
-# 预览将要清理的文件（推荐）
-bash cleanup_old_files.sh --dry-run
-
-# 执行清理（会自动创建备份）
-bash cleanup_old_files.sh
-
-# 不创建备份直接清理
-bash cleanup_old_files.sh --no-backup
-```
-
-清理脚本会：
-- 删除空的测试文件
-- 归档测试JSON到 `docs/test_data/archived/`
-- 删除中间版本chunks
-- 移动分析文件到 `docs/analysis/`
-- 自动创建备份（除非使用 `--no-backup`）
+- **v2.0**: 优化工作流。将数据清洗 (`optimizer.py`) 逻辑集成至语义优化器中，修复了合并 Chunk 时的对话丢失 Bug。

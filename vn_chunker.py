@@ -889,8 +889,7 @@ class VisualNovelChunker:
                      scene_id: str,
                      source_file: str,
                      scene_lines: List[str],
-                     parent_id: Optional[str] = None,
-                     prev_chunk_metadata: Optional[ChunkMetadata] = None) -> Chunk:
+                     parent_id: Optional[str] = None) -> Chunk:
         """
         创建单个chunk
         
@@ -900,7 +899,6 @@ class VisualNovelChunker:
             source_file: 源文件名
             scene_lines: 场景行列表
             parent_id: 父chunk ID
-            prev_chunk_metadata: 上一个chunk的元数据(用于继承场景信息)
             
         Returns:
             Chunk对象
@@ -936,20 +934,7 @@ class VisualNovelChunker:
             dialogues=meta_dict.get('dialogues', [])
         )
         
-        # 场景信息继承：如果当前chunk的location/weather/time_period为空，
-        # 且有上一个chunk的元数据，则从上一个chunk继承
-        if prev_chunk_metadata:
-            if not metadata.location and prev_chunk_metadata.location:
-                metadata.location = prev_chunk_metadata.location
-                logger.debug(f"Chunk {chunk_id}: 继承location: {metadata.location}")
-            
-            if not metadata.weather and prev_chunk_metadata.weather:
-                metadata.weather = prev_chunk_metadata.weather
-                logger.debug(f"Chunk {chunk_id}: 继承weather: {metadata.weather}")
-            
-            if not metadata.time_period and prev_chunk_metadata.time_period:
-                metadata.time_period = prev_chunk_metadata.time_period
-                logger.debug(f"Chunk {chunk_id}: 继承time_period: {metadata.time_period}")
+
         
         return Chunk(
             chunk_id=chunk_id,
@@ -958,8 +943,7 @@ class VisualNovelChunker:
             parent_chunk_id=parent_id
         )
     
-    def split_by_dialogues(self, scene_id: str, source_file: str, scene_lines: List[str],
-                          prev_chunk_metadata: Optional[ChunkMetadata] = None) -> List[Chunk]:
+    def split_by_dialogues(self, scene_id: str, source_file: str, scene_lines: List[str]) -> List[Chunk]:
         """
         当场景过长时，按对话组分块
         
@@ -967,7 +951,6 @@ class VisualNovelChunker:
             scene_id: 场景ID
             source_file: 源文件名
             scene_lines: 场景行列表
-            prev_chunk_metadata: 上一个chunk的元数据(用于继承场景信息)
             
         Returns:
             chunk列表
@@ -977,7 +960,7 @@ class VisualNovelChunker:
         current_chunk_lines = []
         current_tokens = 0
         sub_chunk_idx = 0
-        current_prev_metadata = prev_chunk_metadata  # 追踪当前的prev_metadata
+
         
         for group in dialogue_groups:
             # 计算这组对话的token数
@@ -987,10 +970,8 @@ class VisualNovelChunker:
             # 如果加上这组对话会超过最大限制，先保存当前chunk
             if current_tokens + group_tokens > self.max_chunk_size and current_chunk_lines:
                 chunk_id = f"{scene_id}_sub_{sub_chunk_idx}"
-                chunk = self.create_chunk(chunk_id, scene_id, source_file, current_chunk_lines, scene_id,
-                                         prev_chunk_metadata=current_prev_metadata)
+                chunk = self.create_chunk(chunk_id, scene_id, source_file, current_chunk_lines, scene_id)
                 chunks.append(chunk)
-                current_prev_metadata = chunk.metadata  # 更新为当前chunk的metadata
                 
                 # 重置，保留overlap
                 overlap_groups = dialogue_groups[max(0, len(chunks) - self.overlap_lines):len(chunks)]
@@ -1005,8 +986,7 @@ class VisualNovelChunker:
         # 处理最后一个chunk
         if current_chunk_lines:
             chunk_id = f"{scene_id}_sub_{sub_chunk_idx}"
-            chunk = self.create_chunk(chunk_id, scene_id, source_file, current_chunk_lines, scene_id,
-                                     prev_chunk_metadata=current_prev_metadata)
+            chunk = self.create_chunk(chunk_id, scene_id, source_file, current_chunk_lines, scene_id)
             chunks.append(chunk)
         
         return chunks
@@ -1025,7 +1005,7 @@ class VisualNovelChunker:
         """
         chunks = []
         base_filename = Path(source_file).stem
-        prev_chunk_metadata = None  # 追踪上一个chunk的元数据
+
         
         for scene_idx, (start, end) in enumerate(scenes):
             scene_id = f"{base_filename}_scene_{scene_idx:03d}"
@@ -1040,19 +1020,13 @@ class VisualNovelChunker:
             
             if scene_tokens <= split_threshold:
                 # 场景大小合适，作为单个chunk
-                chunk = self.create_chunk(scene_id, scene_id, source_file, scene_lines, 
-                                         prev_chunk_metadata=prev_chunk_metadata)
+                chunk = self.create_chunk(scene_id, scene_id, source_file, scene_lines)
                 chunks.append(chunk)
-                prev_chunk_metadata = chunk.metadata  # 更新prev_chunk_metadata
             else:
                 # 场景过长，按对话组分块
                 logger.info(f"场景 {scene_id} 过长 ({scene_tokens} tokens)，按对话组分块")
-                sub_chunks = self.split_by_dialogues(scene_id, source_file, scene_lines, 
-                                                     prev_chunk_metadata=prev_chunk_metadata)
+                sub_chunks = self.split_by_dialogues(scene_id, source_file, scene_lines)
                 chunks.extend(sub_chunks)
-                # 更新prev_chunk_metadata为最后一个sub_chunk
-                if sub_chunks:
-                    prev_chunk_metadata = sub_chunks[-1].metadata
         
         logger.info(f"文件 {source_file} 生成 {len(chunks)} 个chunks (细粒度模式: {self.fine_grained_mode})")
         return chunks

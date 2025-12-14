@@ -264,6 +264,11 @@ class EmbeddingOptimizer:
             merged_metadata['token_count'] = self._get_field(chunk1, 'token_count', 0) + self._get_field(chunk2, 'token_count', 0)
             merged_metadata['dialogue_count'] = self._get_field(chunk1, 'dialogue_count', 0) + self._get_field(chunk2, 'dialogue_count', 0)
             
+            # CRITICAL FIX: Merge dialogues
+            dialogues1 = merged_metadata.get('dialogues', [])
+            dialogues2 = chunk2.get('metadata', {}).get('dialogues', [])
+            merged_metadata['dialogues'] = dialogues1 + dialogues2
+            
             return {
                 'chunk_id': merged_metadata['chunk_id'],
                 'content': merged_content,
@@ -278,12 +283,58 @@ class EmbeddingOptimizer:
             merged_meta['tokens'] = self._get_field(chunk1, 'token_count', 0) + self._get_field(chunk2, 'token_count', 0)
             merged_meta['dlg_cnt'] = self._get_field(chunk1, 'dialogue_count', 0) + self._get_field(chunk2, 'dialogue_count', 0)
             
+            # CRITICAL FIX: Merge dialogues (dlgs)
+            dlgs1 = merged_meta.get('dlgs', [])
+            dlgs2 = chunk2.get('meta', {}).get('dlgs', [])
+            merged_meta['dlgs'] = dlgs1 + dlgs2
+            
             return {
                 'id': f"{self._get_chunk_id(chunk1)}_merged",
                 'content': merged_content,
                 'meta': merged_meta,
                 'merged_from': [self._get_chunk_id(chunk1), self._get_chunk_id(chunk2)]
             }
+
+    def clean_chunk_data(self, chunk: Dict) -> Dict:
+        """
+        清理chunk数据 (集成自optimizer.py)
+        1. 移除null/空字段
+        2. 处理action/action_desc冗余
+        3. 移除冗余元数据
+        """
+        import copy
+        c = copy.deepcopy(chunk)
+        
+        if 'metadata' in c and 'dialogues' in c['metadata']:
+            cleaned_dialogues = []
+            for dlg in c['metadata']['dialogues']:
+                # 移除null和空字符串字段
+                cleaned_dlg = {k: v for k, v in dlg.items() if v not in (None, '', [])}
+                
+                # 处理action和action_desc的逻辑
+                has_action_desc = 'action_desc' in cleaned_dlg and cleaned_dlg['action_desc'].strip()
+                has_action = 'action' in cleaned_dlg and cleaned_dlg['action'].strip()
+                
+                if has_action_desc:
+                    cleaned_dlg.pop('action', None)
+                elif has_action:
+                    cleaned_dlg.pop('action_desc', None)
+                else:
+                    cleaned_dlg.pop('action', None)
+                    cleaned_dlg.pop('action_desc', None)
+                
+                cleaned_dialogues.append(cleaned_dlg)
+            c['metadata']['dialogues'] = cleaned_dialogues
+            
+            # 移除冗余顶层字段
+            c['metadata'].pop('voice_refs', None)
+            c['metadata'].pop('emotions', None)
+            
+        # 移除结构冗余
+        c.pop('parent_chunk_id', None)
+        c.pop('overlap_prev', None)
+        
+        return c
     
     def optimize_chunks(self, chunks: List[Dict], use_cache: bool = True) -> List[Dict]:
         """
@@ -416,6 +467,7 @@ def main():
     parser.add_argument('--max-merged-size', type=int, default=1800, 
                        help='合并后最大大小 (默认1800适配细粒度模式，默认chunker模式可用2000-2500)')
     parser.add_argument('--analyze-only', action='store_true', help='仅分析，不优化')
+    parser.add_argument('--no-clean', action='store_true', help='跳过集成数据清理 (保留原始合并数据)')
     
     args = parser.parse_args()
     
@@ -455,6 +507,11 @@ def main():
     else:
         # 优化
         optimized_chunks = optimizer.optimize_chunks(chunks)
+        
+        # 集成数据清理 (替代 step 3)
+        if not args.no_clean:
+            logger.info("执行集成数据清理 (移除冗余数据)...")
+            optimized_chunks = [optimizer.clean_chunk_data(c) for c in optimized_chunks]
         
         # 保存优化后的chunks
         with open(args.output, 'w', encoding='utf-8') as f:
