@@ -1082,18 +1082,18 @@ class VisualNovelChunker:
         """
         txt_files = list(Path(directory).glob('*.txt'))
         
-        # 按故事序号排序 (story_main_102xxx -> 103xxx -> 104xxx -> 105xxx)
+        # 按故事序号排序 (完整的文件名数字顺序)
         def get_story_number(path: Path) -> int:
             """提取文件名中的故事编号用于排序"""
             try:
-                # 提取 story_main_10X 中的 10X 部分
+                # 提取 story_main_ 后的完整数字部分
                 name = path.stem  # story_main_10250101
                 if 'story_main_' in name:
-                    story_num = name.split('_')[2][:3]  # "102"
+                    story_num = name.split('_')[2]  # "10250101" (完整数字)
                     return int(story_num)
-                return 999  # 其他文件排在最后
+                return 999999999  # 其他文件排在最后
             except:
-                return 999
+                return 999999999
         
         txt_files.sort(key=get_story_number)
         
