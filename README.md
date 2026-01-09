@@ -28,7 +28,7 @@ python3 vn_chunker.py txt/ --fine-grained -o chunks.json
 
 ```bash
 # 语义合并 + 自动数据清洗
-python3 embedding_optimizer.py chunks.json -o optimized_final.json
+python3 embedding_optimizer.py chunks.json -o optimized_final.json --keep-voice-refs --keep-emotions
 ```
 
 *(注意：此步骤已集成原本独立的 `optimizer.py` 功能，无需额外运行其他脚本)*
@@ -51,7 +51,7 @@ python3 vn_chunker.py [输入目录] [参数] --fine-grained
 **常用参数：**
 - `--target-size`: 目标 Chunk 大小 (默认 2000 tokens, 细粒度模式下自动设为 600)
 - `--max-size`: 最大 Chunk 大小 (默认 3000 tokens, 细粒度模式下自动设为 800)
-- `--overlap`: 上下文重叠窗口 (默认 200 tokens)
+- `--overlap`: 上下文重叠窗口 (默认 200 tokens，现按 token 数计算并回溯足够的对话组)
 - `--fine-grained`: 细粒度模式 (推荐！生成 600-800 token 的小碎片，为后续语义合并提供基础)
 
 ### Step 2: 运行优化器 (`embedding_optimizer.py`)
@@ -63,8 +63,11 @@ python3 embedding_optimizer.py [输入文件] -o [输出文件] [参数]
 **常用参数：**
 - `--api-url`: Embedding API 地址 (默认 `http://192.168.123.113:9997`)
 - `--model-uid`: 模型及其 ID (默认 `bge-m3`)
-- `--similarity-threshold`: 相似度阈值 (默认 0.82，适合合并细粒度碎片)
+- `--similarity-threshold`: 相似度阈值 (默认 0.84，适合合并细粒度碎片)
 - `--no-clean`: 仅合并但不执行数据清洗 (不推荐)
+- `--keep-voice-refs` / `--keep-emotions`: 清理时保留语音 / 情绪元数据（默认已保留）
+- `--drop-voice-refs` / `--drop-emotions`: 如需精简输出可显式删除对应字段
+- `--analyze`: 优化后生成语义连贯性报告（默认不生成）
 
 ### 辅助工具
 
@@ -117,5 +120,10 @@ python3 embedding_optimizer.py [输入文件] -o [输出文件] [参数]
 
 ## 📝 开发日志
 
+- **v2.2**: 
+  - 分块重叠按 token 数和对话组自动回溯，减少上下文断层。
+  - 合并后重新计数 token / 对话数，保证嵌入长度准确。
+  - 语义连贯性报告改为逐文件、使用与优化一致的 meta+content 嵌入，并输出最低相似度对提示复查。
+  - 数据清洗可选择保留 voice_refs / emotions，便于多模态或情绪维度的后处理。
 - **v2.1**: 强化数据解析与合并质量：支持日文角色/动作匹配与“キャラモーション即時再生”，修正无语音对话的情感误贴问题，合并 Chunk 时同步角色/场景元数据并清洗优化格式残留的空字段。
 - **v2.0**: 优化工作流。将数据清洗 (`optimizer.py`) 逻辑集成至语义优化器中，修复了合并 Chunk 时的对话丢失 Bug。

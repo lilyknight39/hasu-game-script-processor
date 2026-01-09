@@ -355,131 +355,142 @@ class VisualNovelChunker:
     
     def extract_structured_dialogues(self, scene_lines: List[str]) -> List[DialogueLine]:
         """
-        按序提取对话及其关联的表情、动作、语音
-        
-        扫描场景行,当遇到对话命令时:
-        1. 向前查找最近的表情/动作命令(作为对话前状态)
-        2. 向后查找紧跟的表情变化(作为对话后状态)
-        3. 提取voice_ref
-        
-        Args:
-            scene_lines: 场景行列表
-            
-        Returns:
-            按时间顺序的对话列表
+        单遍状态机扫描: 维护每个角色的当前表情/动作状态
+        - 遇到表情/动作命令 -> 更新角色状态
+        - 遇到对话 -> 记录当前状态为 before；将上一句对话到当前行之间的同角色变化作为 after
+        - 不依赖行数窗口，直到下一句对话或场景结束自动收尾
         """
-        dialogues = []
-        for i, line in enumerate(scene_lines):
-            dialogue_line = None
+        dialogues: List[DialogueLine] = []
+        current_state: Dict[str, Dict[str, Optional[str]]] = {}
+        last_dialogue_idx: Optional[int] = None
+        last_dialogue_line: Optional[int] = None
+        
+        def ensure_state(char: str):
+            if char not in current_state:
+                current_state[char] = {
+                    'emotion': None,
+                    'action': None,
+                    'action_desc': ''
+                }
+        
+        for idx, line in enumerate(scene_lines):
+            # 1) 表情事件
+            em_match = self.character_emotion_re.match(line)
+            if em_match:
+                char = em_match.group(1)
+                emotion_id = em_match.group(2)
+                emotion_comment = em_match.group(3) if len(em_match.groups()) >= 3 and em_match.group(3) else None
+                ensure_state(char)
+                current_state[char]['emotion'] = emotion_comment if emotion_comment else emotion_id
+                continue
+            
+            # 2) 动作事件
+            motion_match = self.character_motion_re.match(line)
+            if motion_match:
+                char = motion_match.group(1)
+                action_id = motion_match.group(2)
+                action_comment = motion_match.group(3) if len(motion_match.groups()) >= 3 and motion_match.group(3) else None
+                ensure_state(char)
+                current_state[char]['action'] = action_id
+                if action_comment:
+                    current_state[char]['action_desc'] = action_comment
+                elif action_id in self.motion_mappings:
+                    current_state[char]['action_desc'] = self.motion_mappings[action_id]
+                else:
+                    current_state[char]['action_desc'] = ''
+                continue
+            
+            # 3) 对话匹配
+            dialogue_match = None
             character = None
             text = None
             voice_ref = None
             
-            # 1. 检测对话 (メッセージ表示格式)
-            match = self.character_message_re.match(line)
-            if match:
-                character = match.group(1)
-                voice_ref = match.group(2)  # 已经包含 "vo_adv_..." 格式
-                text = match.group(3)
+            match_msg = self.character_message_re.match(line)
+            if match_msg:
+                dialogue_match = match_msg
+                character = match_msg.group(1)
+                voice_ref = match_msg.group(2)
+                text = match_msg.group(3)
             
-            # 2. 检测对话 (ノベルテキスト追加格式)
-            if not match:
-                match = self.dialogue_re.match(line)
-                if match:
-                    text = match.group(1)
-                    character = match.group(2)
-                    # 从原始行提取完整voice_ref
+            if not dialogue_match:
+                match_dlg = self.dialogue_re.match(line)
+                if match_dlg:
+                    dialogue_match = match_dlg
+                    text = match_dlg.group(1)
+                    character = match_dlg.group(2)
                     voice_match = re.search(r'vo_adv_\d+_\d+_m\d+_\d+@\w+', line)
                     if voice_match:
                         voice_ref = voice_match.group(0)
             
-            # 3. 检测无语音对话
-            if not match:
-                match = self.dialogue_no_voice_re.match(line)
-                if match:
-                    text = match.group(1)
+            if not dialogue_match:
+                match_narr = self.dialogue_no_voice_re.match(line)
+                if match_narr:
+                    dialogue_match = match_narr
+                    text = match_narr.group(1)
                     character = 'narrator'
                     voice_ref = None
             
-            # 如果找到对话,清理文本并提取上下文
-            if character and text:
-                # 清理text中嵌入的命令(motion/emotion等)
-                # 移除 [キャラモーション(即時)再生 xxx] 格式
-                text = re.sub(r'\[キャラモーション(?:即時)?再生[^\]]+\](?:#[^\]]+)?', '', text)
-                # 移除 [キャラ表情変更 xxx] 格式
-                text = re.sub(r'\[キャラ表情変更[^\]]+\](?:#[^\]]+)?', '', text)
-                # 移除其他可能的命令
-                text = re.sub(r'\[(?:BGM|SE|背景)[^\]]+\]', '', text)
+            if not dialogue_match:
+                continue  # 非对话、非表情/动作，跳过
+            
+            # 清理文本中的嵌入命令/格式符
+            text = re.sub(r'\[キャラモーション(?:即時)?再生[^\]]+\](?:#[^\]]+)?', '', text)
+            text = re.sub(r'\[キャラ表情変更[^\]]+\](?:#[^\]]+)?', '', text)
+            text = re.sub(r'\[(?:BGM|SE|背景)[^\]]+\]', '', text)
+            text = text.replace('[r]', '\n').replace('[Space]', ' ').strip()
+            
+            ensure_state(character)
+            
+            # 取当前状态作为 before
+            before_emotion = current_state[character].get('emotion')
+            before_action = current_state[character].get('action')
+            before_action_desc = current_state[character].get('action_desc', '')
+            
+            # 如果存在上一句对话，且上一句对话的角色与本句相同，把当前状态写入上一句对话的 after
+            if last_dialogue_idx is not None:
+                last_dialogue = dialogues[last_dialogue_idx]
+                # 非对话区间长度提醒
+                if last_dialogue_line is not None:
+                    gap = idx - last_dialogue_line - 1
+                    if gap > 200:
+                        logger.debug(f"对话后非对话区段超过200行: 角色 {last_dialogue.character}, 行索引 {last_dialogue_line}->{idx}")
                 
-                # 转换格式标记为实际字符
-                text = text.replace('[r]', '\n')  # 换行
-                text = text.replace('[Space]', ' ')  # 空格
-                
-                # 清理多余空格
-                text = text.strip()
-                
-                emotion_before = None
-                emotion_after = None
-                action = None
-                action_desc = ''
-                
-                # 向前扫描:查找最近的表情和动作(最多回溯10行)
-                for j in range(max(0, i - 10), i):
-                    prev_line = scene_lines[j]
-                    
-                    # 查找表情(优先使用注释)
-                    emotion_match = self.character_emotion_re.match(prev_line)
-                    if emotion_match and emotion_match.group(1) == character:
-                        emotion_id = emotion_match.group(2)
-                        emotion_comment = emotion_match.group(3) if len(emotion_match.groups()) >= 3 and emotion_match.group(3) else None
-                        emotion_before = emotion_comment if emotion_comment else emotion_id
-                    
-                    # 查找动作(优先使用注释,其次映射表,最后为空)
-                    motion_match = self.character_motion_re.match(prev_line)
-                    if motion_match and motion_match.group(1) == character:
-                        action = motion_match.group(2)  # mot_00_xxxxx
-                        motion_comment = motion_match.group(3) if len(motion_match.groups()) >= 3 and motion_match.group(3) else None
-                        
-                        if motion_comment:
-                            # 优先使用注释
-                            action_desc = motion_comment
-                        elif action in self.motion_mappings:
-                            # 使用映射表
-                            action_desc = self.motion_mappings[action]
-                        else:
-                            # 无映射时为空
-                            action_desc = ''
-                
-                # 向后扫描:查找对话后的表情变化(最多前瞻5行)
-                for j in range(i + 1, min(len(scene_lines), i + 6)):
-                    next_line = scene_lines[j]
-                    
-                    # 如果遇到新的对话,停止搜索
-                    if (self.character_message_re.match(next_line) or 
-                        self.dialogue_re.match(next_line) or
-                        self.dialogue_no_voice_re.match(next_line)):
-                        break
-                    
-                    # 查找表情变化(优先使用注释)
-                    emotion_match = self.character_emotion_re.match(next_line)
-                    if emotion_match and emotion_match.group(1) == character:
-                        emotion_id = emotion_match.group(2)
-                        emotion_comment = emotion_match.group(3) if len(emotion_match.groups()) >= 3 and emotion_match.group(3) else None
-                        emotion_after = emotion_comment if emotion_comment else emotion_id
-                        break  # 找到第一个就停止
-                
-                # 创建对话对象
-                dialogue = DialogueLine(
-                    character=character,
-                    text=text,
-                    voice_ref=voice_ref,
-                    emotion_before=emotion_before,
-                    emotion_after=emotion_after,
-                    action=action,
-                    action_desc=action_desc
-                )
-                
-                dialogues.append(dialogue)
+                if last_dialogue.character == character:
+                    last_dialogue.emotion_after = before_emotion
+                    # 对动作后态用描述优先
+                    if before_action_desc:
+                        last_dialogue.action_desc = before_action_desc
+                    elif before_action:
+                        last_dialogue.action = before_action
+                else:
+                    # 不同角色：仅更新对应角色状态，不写入上一句
+                    pass
+            
+            # 创建当前对话
+            dialogue = DialogueLine(
+                character=character,
+                text=text,
+                voice_ref=voice_ref,
+                emotion_before=before_emotion,
+                emotion_after=None,
+                action=before_action,
+                action_desc=before_action_desc
+            )
+            dialogues.append(dialogue)
+            last_dialogue_idx = len(dialogues) - 1
+            last_dialogue_line = idx
+        
+        # 场景结束时，补充最后一句对话的 after（用当前状态）
+        if last_dialogue_idx is not None:
+            last_dialogue = dialogues[last_dialogue_idx]
+            state = current_state.get(last_dialogue.character, {})
+            if state:
+                last_dialogue.emotion_after = state.get('emotion', last_dialogue.emotion_after)
+                if state.get('action_desc'):
+                    last_dialogue.action_desc = state.get('action_desc')
+                elif state.get('action'):
+                    last_dialogue.action = state.get('action')
         
         return dialogues
     
@@ -730,8 +741,8 @@ class VisualNovelChunker:
                     unique_voices.append(v)
             metadata['voice_refs'] = unique_voices
         
-        # 转换set为list
-        metadata['characters'] = list(metadata['characters'])
+        # 转换set为稳定的list（排序保证嵌入一致性）
+        metadata['characters'] = sorted(metadata['characters'])
         
         return metadata
     
@@ -962,6 +973,32 @@ class VisualNovelChunker:
         sub_chunk_idx = 0
         recent_groups: List[List[Dict]] = []
 
+        def select_overlap_groups(groups: List[List[Dict]]) -> List[List[Dict]]:
+            """
+            根据配置选择需要保留的重叠对话组。
+            
+            优先保证 overlap_lines 的行数；如果配置了 overlap_tokens，则继续向前累加直到达到该 token 数。
+            """
+            if not groups:
+                return []
+            
+            selected: List[List[Dict]] = []
+            accumulated_tokens = 0
+            
+            for g in reversed(groups):
+                group_text = '\n'.join([d['text'] for d in g])
+                group_tokens = self.count_tokens(group_text)
+                
+                need_more_lines = len(selected) < self.overlap_lines
+                need_more_tokens = self.overlap_tokens and accumulated_tokens < self.overlap_tokens
+                
+                if need_more_lines or need_more_tokens:
+                    selected.insert(0, g)  # 保持原顺序
+                    accumulated_tokens += group_tokens
+                else:
+                    break
+            
+            return selected
         
         for group in dialogue_groups:
             # 计算这组对话的token数
@@ -975,7 +1012,7 @@ class VisualNovelChunker:
                 chunks.append(chunk)
                 
                 # 重置，保留overlap
-                overlap_groups = recent_groups[-self.overlap_lines:] if self.overlap_lines > 0 else []
+                overlap_groups = select_overlap_groups(recent_groups)
                 current_chunk_lines = [d['raw_line'] for g in overlap_groups for d in g]
                 current_tokens = self.count_tokens('\n'.join([d['text'] for g in overlap_groups for d in g]))
                 recent_groups = overlap_groups.copy()

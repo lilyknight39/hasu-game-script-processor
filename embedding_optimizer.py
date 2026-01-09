@@ -11,6 +11,7 @@
 """
 
 import json
+import re
 import requests
 import numpy as np
 from typing import List, Dict, Tuple
@@ -27,9 +28,11 @@ class EmbeddingOptimizer:
     def __init__(self, 
                  xinference_url: str = "http://192.168.123.113:9997",
                  model_uid: str = "bge-m3",
-                 similarity_threshold: float = 0.82,  # 降低以适应细粒度模式
-                 min_merge_size: int = 300,
-                 max_merged_size: int = 2000):  # 提高到2000以容纳合并内容
+                 similarity_threshold: float = 0.84,  # 根据最新报告略微收紧合并
+                 min_merge_size: int = 150,
+                 max_merged_size: int = 2000,  # 提高到2000以容纳合并内容
+                 keep_voice_refs: bool = True,
+                 keep_emotions: bool = True):  # 默认保留语音/情绪标签，删除改为可选
         """
         初始化优化器
         
@@ -43,12 +46,16 @@ class EmbeddingOptimizer:
             max_merged_size: 合并后的最大大小限制
                            默认2000适配BGE-M3 (8k window)
                            如使用默认chunker模式，可提高到2500
+            keep_voice_refs: 集成清洗时是否保留 voice_refs
+            keep_emotions: 集成清洗时是否保留 emotions
         """
         self.xinference_url = xinference_url
         self.model_uid = model_uid
         self.similarity_threshold = similarity_threshold
         self.min_merge_size = min_merge_size
         self.max_merged_size = max_merged_size
+        self.keep_voice_refs = keep_voice_refs
+        self.keep_emotions = keep_emotions
         
         # 构建API endpoint
         self.embed_url = f"{xinference_url}/v1/embeddings"
@@ -59,6 +66,54 @@ class EmbeddingOptimizer:
         logger.info(f"  相似度阈值: {similarity_threshold}")
         logger.info(f"  最大合并大小: {max_merged_size}")
     
+    def _estimate_tokens(self, text: str) -> int:
+        """粗略估算token数，兼容中日英文本。"""
+        japanese_chars = len(re.findall(r'[\u3040-\u30FF\u4E00-\u9FFF]', text))
+        english_words = len(re.findall(r'[a-zA-Z]+', text))
+        numbers = len(re.findall(r'\d+', text))
+        return japanese_chars + english_words + numbers
+
+    def _collect_emotion_action_summary(self, chunk: Dict) -> str:
+        """
+        从元数据/对话中提取情绪与动作摘要，用于丰富嵌入文本。
+        优先使用标准格式的 dialogues；优化格式可能无情绪信息，则跳过。
+        """
+        emotions = set()
+        actions = set()
+        if 'metadata' in chunk and 'dialogues' in chunk['metadata']:
+            for dlg in chunk['metadata']['dialogues']:
+                if dlg.get('emotion_before'):
+                    emotions.add(dlg['emotion_before'])
+                if dlg.get('emotion_after'):
+                    emotions.add(dlg['emotion_after'])
+                if dlg.get('action_desc'):
+                    actions.add(dlg['action_desc'])
+                elif dlg.get('action'):
+                    actions.add(dlg['action'])
+        return f"Emotions: {', '.join(sorted(emotions))}\nActions: {', '.join(sorted(actions))}" if emotions or actions else ""
+
+    def _build_embedding_text(self, chunk: Dict) -> str:
+        """构造和优化阶段一致的 embedding 输入文本 (meta + content)。"""
+        scene_id = self._get_field(chunk, 'scene_id', '')
+        location = self._get_field(chunk, 'location', '')
+        time_period = self._get_field(chunk, 'time_period', '')
+        chars = self._get_field(chunk, 'characters', [])
+        if isinstance(chars, list):
+            chars_str = ', '.join(chars)
+        else:
+            chars_str = str(chars)
+        emotion_action_text = self._collect_emotion_action_summary(chunk)
+        meta_lines = [
+            f"Scene: {scene_id}",
+            f"Location: {location}",
+            f"Time: {time_period}",
+            f"Chars: {chars_str}",
+        ]
+        if emotion_action_text:
+            meta_lines.append(emotion_action_text)
+        meta_text = "\n".join(meta_lines)
+        return f"{meta_text}\n\n{chunk['content']}"
+
     def get_embedding(self, text: str) -> np.ndarray:
         """
         获取文本的embedding向量
@@ -283,19 +338,22 @@ class EmbeddingOptimizer:
         """
         # 合并内容
         merged_content = chunk1['content'] + '\n---\n' + chunk2['content']
+        merged_tokens = self._estimate_tokens(merged_content)
         
         # 合并元数据 - 使用chunk1的格式
         if 'metadata' in chunk1:
             # 标准格式
             merged_metadata = chunk1['metadata'].copy()
             merged_metadata['chunk_id'] = f"{self._get_chunk_id(chunk1)}_merged"
-            merged_metadata['token_count'] = self._get_field(chunk1, 'token_count', 0) + self._get_field(chunk2, 'token_count', 0)
-            merged_metadata['dialogue_count'] = self._get_field(chunk1, 'dialogue_count', 0) + self._get_field(chunk2, 'dialogue_count', 0)
+            merged_metadata['token_count'] = merged_tokens
             
             # CRITICAL FIX: Merge dialogues
             dialogues1 = merged_metadata.get('dialogues', [])
             dialogues2 = chunk2.get('metadata', {}).get('dialogues', [])
             merged_metadata['dialogues'] = dialogues1 + dialogues2
+            merged_metadata['dialogue_count'] = len(merged_metadata['dialogues']) or (
+                self._get_field(chunk1, 'dialogue_count', 0) + self._get_field(chunk2, 'dialogue_count', 0)
+            )
             
             # 合并角色/语音引用/情绪等上下文信息
             merged_metadata['characters'] = self._merge_unique_list(
@@ -342,13 +400,15 @@ class EmbeddingOptimizer:
         else:
             # 优化格式
             merged_meta = chunk1['meta'].copy()
-            merged_meta['tokens'] = self._get_field(chunk1, 'token_count', 0) + self._get_field(chunk2, 'token_count', 0)
-            merged_meta['dlg_cnt'] = self._get_field(chunk1, 'dialogue_count', 0) + self._get_field(chunk2, 'dialogue_count', 0)
+            merged_meta['tokens'] = merged_tokens
             
             # CRITICAL FIX: Merge dialogues (dlgs)
             dlgs1 = merged_meta.get('dlgs', [])
             dlgs2 = chunk2.get('meta', {}).get('dlgs', [])
             merged_meta['dlgs'] = dlgs1 + dlgs2
+            merged_meta['dlg_cnt'] = len(merged_meta['dlgs']) or (
+                self._get_field(chunk1, 'dialogue_count', 0) + self._get_field(chunk2, 'dialogue_count', 0)
+            )
             
             merged_meta['chars'] = self._merge_unique_list(
                 merged_meta.get('chars', []),
@@ -405,9 +465,11 @@ class EmbeddingOptimizer:
                 cleaned_dialogues.append(cleaned_dlg)
             c['metadata']['dialogues'] = cleaned_dialogues
             
-            # 移除冗余顶层字段
-            c['metadata'].pop('voice_refs', None)
-            c['metadata'].pop('emotions', None)
+            # 只在显式不保留时移除顶层字段
+            if not self.keep_voice_refs:
+                c['metadata'].pop('voice_refs', None)
+            if not self.keep_emotions:
+                c['metadata'].pop('emotions', None)
             
             # 清理空的辅助字段，保持角色列表为非空字符串
             c['metadata']['characters'] = [ch for ch in c['metadata'].get('characters', []) if ch]
@@ -460,20 +522,10 @@ class EmbeddingOptimizer:
         # 构建用于embedding的文本（注入上下文）
         embedding_texts = []
         for chunk in chunks:
-            # 提取元数据
-            scene_id = self._get_field(chunk, 'scene_id', '')
-            location = self._get_field(chunk, 'location', '')
-            time_period = self._get_field(chunk, 'time_period', '')
-            chars = self._get_field(chunk, 'characters', [])
-            if isinstance(chars, list):
-                chars_str = ', '.join(chars)
-            else:
-                chars_str = str(chars)
-                
-            # 构造增强文本: [Meta] + Content
-            # 格式: Scene: ... Location: ... Time: ... Chars: ... \n\n Content
-            meta_text = f"Scene: {scene_id}\nLocation: {location}\nTime: {time_period}\nChars: {chars_str}"
-            full_text = f"{meta_text}\n\n{chunk['content']}"
+            full_text = self._build_embedding_text(chunk)
+            text_tokens = self._estimate_tokens(full_text)
+            if text_tokens > self.max_merged_size * 1.5:
+                logger.debug(f"chunk {self._get_chunk_id(chunk)} 嵌入文本较长，估计 {text_tokens} tokens")
             embedding_texts.append(full_text)
             
         embeddings = self.get_embeddings_batch(embedding_texts)
@@ -547,31 +599,77 @@ class EmbeddingOptimizer:
         """
         logger.info("分析语义连贯性...")
         
-        # 获取embeddings
-        texts = [chunk['content'] for chunk in chunks]
-        embeddings = self.get_embeddings_batch(texts)
+        # 按源文件分组，避免跨文件低相似度干扰
+        file_groups: Dict[str, List[Dict]] = {}
+        for chunk in chunks:
+            source = self._get_field(chunk, 'source_file', 'unknown')
+            if not source or source == 'unknown':
+                cid = self._get_chunk_id(chunk)
+                source = cid.rsplit('_scene_', 1)[0] + '.txt' if '_scene_' in cid else 'unknown'
+            file_groups.setdefault(source, []).append(chunk)
         
-        # 计算相邻chunks的相似度
-        similarities = []
-        for i in range(len(embeddings) - 1):
-            sim = self.cosine_similarity(embeddings[i], embeddings[i + 1])
-            similarities.append(sim)
+        overall_similarities = []
+        high_count = 0
+        low_count = 0
+        file_breakdown = {}
+        low_pairs_all = []
         
-        # 统计
+        for source, file_chunks in file_groups.items():
+            file_chunks.sort(key=lambda c: self._get_chunk_id(c))
+            embedding_texts = [self._build_embedding_text(c) for c in file_chunks]
+            file_embeddings = self.get_embeddings_batch(embedding_texts)
+            
+            file_similarities = []
+            file_low_pairs = []
+            
+            for i in range(len(file_embeddings) - 1):
+                sim = self.cosine_similarity(file_embeddings[i], file_embeddings[i + 1])
+                overall_similarities.append(sim)
+                file_similarities.append(sim)
+                
+                pair_record = {
+                    'source_file': source,
+                    'left_chunk': self._get_chunk_id(file_chunks[i]),
+                    'right_chunk': self._get_chunk_id(file_chunks[i + 1]),
+                    'similarity': sim
+                }
+                low_pairs_all.append(pair_record)
+                
+                if sim >= self.similarity_threshold:
+                    high_count += 1
+                if sim < 0.5:
+                    low_count += 1
+                    file_low_pairs.append(pair_record)
+            
+            file_breakdown[source] = {
+                'chunk_count': len(file_chunks),
+                'avg_similarity': float(np.mean(file_similarities)) if file_similarities else 0.0,
+                'min_similarity': float(np.min(file_similarities)) if file_similarities else 0.0,
+                'max_similarity': float(np.max(file_similarities)) if file_similarities else 0.0,
+                'std_similarity': float(np.std(file_similarities)) if file_similarities else 0.0,
+                'high_similarity_pairs': sum(1 for s in file_similarities if s >= self.similarity_threshold),
+                'low_similarity_pairs': sum(1 for s in file_similarities if s < 0.5),
+                'lowest_pairs': sorted(file_low_pairs, key=lambda p: p['similarity'])[:5]
+            }
+        
+        # 统计汇总
         report = {
             'total_chunks': len(chunks),
-            'avg_similarity': np.mean(similarities) if similarities else 0,
-            'min_similarity': np.min(similarities) if similarities else 0,
-            'max_similarity': np.max(similarities) if similarities else 0,
-            'std_similarity': np.std(similarities) if similarities else 0,
-            'high_similarity_pairs': sum(1 for s in similarities if s >= self.similarity_threshold),
-            'low_similarity_pairs': sum(1 for s in similarities if s < 0.5)
+            'avg_similarity': float(np.mean(overall_similarities)) if overall_similarities else 0.0,
+            'min_similarity': float(np.min(overall_similarities)) if overall_similarities else 0.0,
+            'max_similarity': float(np.max(overall_similarities)) if overall_similarities else 0.0,
+            'std_similarity': float(np.std(overall_similarities)) if overall_similarities else 0.0,
+            'high_similarity_pairs': high_count,
+            'low_similarity_pairs': low_count,
+            'file_breakdown': file_breakdown,
+            'top_low_similarity_pairs': sorted(low_pairs_all, key=lambda p: p['similarity'])[:10]
         }
         
         logger.info("语义连贯性分析:")
         logger.info(f"  平均相似度: {report['avg_similarity']:.3f}")
         logger.info(f"  高相似度对数 (>={self.similarity_threshold}): {report['high_similarity_pairs']}")
         logger.info(f"  低相似度对数 (<0.5): {report['low_similarity_pairs']}")
+        logger.info("  按文件统计已写入报告")
         
         return report
 
@@ -585,13 +683,18 @@ def main():
     parser.add_argument('-o', '--output', help='输出JSON文件（优化后）', required=True)
     parser.add_argument('--api-url', default='http://192.168.123.113:9997', help='XInference API地址')
     parser.add_argument('--model-uid', default='bge-m3', help='模型UID')
-    parser.add_argument('--similarity-threshold', type=float, default=0.82, 
-                       help='相似度阈值 (默认0.82适配细粒度模式，默认chunker模式建议0.85-0.88)')
-    parser.add_argument('--min-merge-size', type=int, default=100, help='最小合并大小')
+    parser.add_argument('--similarity-threshold', type=float, default=0.84, 
+                       help='相似度阈值 (默认0.84，略收紧合并，默认chunker模式可用0.85-0.88)')
+    parser.add_argument('--min-merge-size', type=int, default=150, help='最小合并大小')
     parser.add_argument('--max-merged-size', type=int, default=1800, 
                        help='合并后最大大小 (默认1800适配细粒度模式，默认chunker模式可用2000-2500)')
     parser.add_argument('--analyze-only', action='store_true', help='仅分析，不优化')
     parser.add_argument('--no-clean', action='store_true', help='跳过集成数据清理 (保留原始合并数据)')
+    parser.add_argument('--keep-voice-refs', action='store_true', default=True, help='清理时保留 voice_refs 字段（默认保留）')
+    parser.add_argument('--drop-voice-refs', action='store_true', help='显式删除 voice_refs 字段')
+    parser.add_argument('--keep-emotions', action='store_true', default=True, help='清理时保留 emotions 字段（默认保留）')
+    parser.add_argument('--drop-emotions', action='store_true', help='显式删除 emotions 字段')
+    parser.add_argument('--analyze', action='store_true', help='优化后生成语义连贯性报告（默认不生成）')
     
     args = parser.parse_args()
     
@@ -606,7 +709,9 @@ def main():
         model_uid=args.model_uid,
         similarity_threshold=args.similarity_threshold,
         min_merge_size=args.min_merge_size,
-        max_merged_size=args.max_merged_size
+        max_merged_size=args.max_merged_size,
+        keep_voice_refs=bool(args.keep_voice_refs and not args.drop_voice_refs),
+        keep_emotions=bool(args.keep_emotions and not args.drop_emotions)
     )
     
     # 测试API连接
@@ -622,28 +727,28 @@ def main():
     if args.analyze_only:
         # 仅分析
         report = optimizer.analyze_semantic_coherence(chunks)
-        
-        # 保存分析报告
         report_file = args.output.replace('.json', '_analysis.json')
         with open(report_file, 'w', encoding='utf-8') as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
         logger.info(f"分析报告已保存: {report_file}")
-    else:
-        # 优化
-        optimized_chunks = optimizer.optimize_chunks(chunks)
-        
-        # 集成数据清理 (替代 step 3)
-        if not args.no_clean:
-            logger.info("执行集成数据清理 (移除冗余数据)...")
-            optimized_chunks = [optimizer.clean_chunk_data(c) for c in optimized_chunks]
-        
-        # 保存优化后的chunks
-        with open(args.output, 'w', encoding='utf-8') as f:
-            json.dump(optimized_chunks, f, ensure_ascii=False, indent=2)
-        
-        logger.info(f"优化结果已保存: {args.output}")
-        
-        # 同时进行分析
+        return
+
+    # 优化
+    optimized_chunks = optimizer.optimize_chunks(chunks)
+    
+    # 集成数据清理 (替代 step 3)
+    if not args.no_clean:
+        logger.info("执行集成数据清理 (移除冗余数据)...")
+        optimized_chunks = [optimizer.clean_chunk_data(c) for c in optimized_chunks]
+    
+    # 保存优化后的chunks
+    with open(args.output, 'w', encoding='utf-8') as f:
+        json.dump(optimized_chunks, f, ensure_ascii=False, indent=2)
+    
+    logger.info(f"优化结果已保存: {args.output}")
+    
+    # 可选分析
+    if args.analyze:
         report = optimizer.analyze_semantic_coherence(optimized_chunks)
         report_file = args.output.replace('.json', '_analysis.json')
         with open(report_file, 'w', encoding='utf-8') as f:
