@@ -132,7 +132,7 @@ class VisualNovelChunker:
     # 对话文本模式
     DIALOGUE_PATTERN = r'^\[ノベルテキスト追加\s+(.+?)\s+vo_adv_\d+_\d+_m\d+_\d+@(\w+)\]$'
     DIALOGUE_PATTERN_NO_VOICE = r'^\[ノベルテキスト追加\s+(.+?)\]$'
-    DIALOGUE_END = r'^\\[ノベルテキスト削除\\]★##+$'
+    DIALOGUE_END = r'^\[ノベルテキスト削除\]★#+$'
     
     # 角色相关（增强版：提取注释）
     # 角色相关（增强版：提取注释）
@@ -975,6 +975,7 @@ class VisualNovelChunker:
         current_chunk_lines = []
         current_tokens = 0
         sub_chunk_idx = 0
+        recent_groups: List[List[Dict]] = []
 
         
         for group in dialogue_groups:
@@ -989,14 +990,16 @@ class VisualNovelChunker:
                 chunks.append(chunk)
                 
                 # 重置，保留overlap
-                overlap_groups = dialogue_groups[max(0, len(chunks) - self.overlap_lines):len(chunks)]
+                overlap_groups = recent_groups[-self.overlap_lines:] if self.overlap_lines > 0 else []
                 current_chunk_lines = [d['raw_line'] for g in overlap_groups for d in g]
                 current_tokens = self.count_tokens('\n'.join([d['text'] for g in overlap_groups for d in g]))
+                recent_groups = overlap_groups.copy()
                 sub_chunk_idx += 1
             
             # 添加当前对话组
             current_chunk_lines.extend([d['raw_line'] for d in group])
             current_tokens += group_tokens
+            recent_groups.append(group)
         
         # 处理最后一个chunk
         if current_chunk_lines:

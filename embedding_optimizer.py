@@ -171,8 +171,20 @@ class EmbeddingOptimizer:
                 'dialogue_count': 'dlg_cnt',
                 'scene_id': 'scene',
                 'source_file': 'scene',  # 从scene推导
+                'location': 'loc',
+                'time_period': 'time',
+                'characters': 'chars',
+                'bgm': 'bgm',
             }
-            return chunk['meta'].get(field_map.get(field, field), default)
+            value = chunk['meta'].get(field_map.get(field, field), default)
+            
+            if field == 'source_file':
+                # 尝试从scene字段或chunk_id推导源文件名
+                scene_val = chunk['meta'].get('scene') or chunk.get('id', '')
+                if scene_val and '_scene_' in scene_val:
+                    return scene_val.split('_scene_', 1)[0] + '.txt'
+            
+            return value
         return default
     
     def _get_chunk_id(self, chunk: Dict) -> str:
