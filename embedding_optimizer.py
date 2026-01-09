@@ -80,37 +80,86 @@ class EmbeddingOptimizer:
         """
         emotions = set()
         actions = set()
-        if 'metadata' in chunk and 'dialogues' in chunk['metadata']:
-            for dlg in chunk['metadata']['dialogues']:
-                if dlg.get('emotion_before'):
-                    emotions.add(dlg['emotion_before'])
-                if dlg.get('emotion_after'):
-                    emotions.add(dlg['emotion_after'])
-                if dlg.get('action_desc'):
-                    actions.add(dlg['action_desc'])
-                elif dlg.get('action'):
-                    actions.add(dlg['action'])
+        # 标准格式
+        meta = chunk.get('metadata') or chunk.get('meta') or {}
+        if meta:
+            if 'dialogues' in meta:
+                for dlg in meta['dialogues']:
+                    if dlg.get('emotion_before'):
+                        emotions.add(dlg['emotion_before'])
+                    if dlg.get('emotion_after'):
+                        emotions.add(dlg['emotion_after'])
+                    if dlg.get('action_desc'):
+                        actions.add(dlg['action_desc'])
+                    elif dlg.get('action'):
+                        actions.add(dlg['action'])
+                    if dlg.get('state_changes'):
+                        for chg in dlg['state_changes']:
+                            if chg.get('type') == 'emotion' and chg.get('value'):
+                                emotions.add(chg['value'])
+                            if chg.get('type') == 'action' and chg.get('value'):
+                                actions.add(chg['value'])
+            # 场景级元数据的情绪/动作/状态变化
+            for v in meta.get('emotions', {}).values():
+                if v:
+                    emotions.add(v)
+            for v in meta.get('actions', {}).values():
+                if v:
+                    actions.add(v)
+            for chg in meta.get('state_changes', []) or []:
+                if chg.get('type') == 'emotion' and chg.get('value'):
+                    emotions.add(chg['value'])
+                if chg.get('type') == 'action' and chg.get('value'):
+                    actions.add(chg['value'])
         return f"Emotions: {', '.join(sorted(emotions))}\nActions: {', '.join(sorted(actions))}" if emotions or actions else ""
+
+    def _collect_voice_refs(self, chunk: Dict) -> str:
+        """
+        收集语音引用（对话级 + 场景级），用于嵌入时保留声线/角色线索。
+        """
+        meta = chunk.get('metadata') or chunk.get('meta') or {}
+        voices = []
+        for dlg in meta.get('dialogues', []) or []:
+            if dlg.get('voice_ref'):
+                voices.append(dlg['voice_ref'])
+        voices.extend(meta.get('voice_refs', []) or meta.get('voices', []) or [])
+        # 去重保持顺序
+        seen = set()
+        uniq = []
+        for v in voices:
+            if v and v not in seen:
+                seen.add(v)
+                uniq.append(v)
+        return ', '.join(uniq)
 
     def _build_embedding_text(self, chunk: Dict) -> str:
         """构造和优化阶段一致的 embedding 输入文本 (meta + content)。"""
         scene_id = self._get_field(chunk, 'scene_id', '')
         location = self._get_field(chunk, 'location', '')
         time_period = self._get_field(chunk, 'time_period', '')
+        weather = self._get_field(chunk, 'weather', '')
+        scene_type = self._get_field(chunk, 'scene_type', '')
+        bgm = self._get_field(chunk, 'bgm', '')
         chars = self._get_field(chunk, 'characters', [])
         if isinstance(chars, list):
             chars_str = ', '.join(chars)
         else:
             chars_str = str(chars)
         emotion_action_text = self._collect_emotion_action_summary(chunk)
+        voice_text = self._collect_voice_refs(chunk)
         meta_lines = [
             f"Scene: {scene_id}",
             f"Location: {location}",
             f"Time: {time_period}",
+            f"Weather: {weather}",
+            f"SceneType: {scene_type}",
+            f"BGM: {bgm}",
             f"Chars: {chars_str}",
         ]
         if emotion_action_text:
             meta_lines.append(emotion_action_text)
+        if voice_text:
+            meta_lines.append(f"VoiceRefs: {voice_text}")
         meta_text = "\n".join(meta_lines)
         return f"{meta_text}\n\n{chunk['content']}"
 
@@ -228,8 +277,13 @@ class EmbeddingOptimizer:
                 'source_file': 'scene',  # 从scene推导
                 'location': 'loc',
                 'time_period': 'time',
+                'weather': 'weather',
+                'scene_type': 'scene_type',
                 'characters': 'chars',
                 'bgm': 'bgm',
+                'voice_refs': 'voice_refs',
+                'actions': 'actions',
+                'state_changes': 'state_changes',
             }
             value = chunk['meta'].get(field_map.get(field, field), default)
             
@@ -259,8 +313,26 @@ class EmbeddingOptimizer:
         return merged
 
     def _choose_field(self, primary, secondary):
-        """优先返回非空的primary，否则使用secondary"""
-        return primary if primary not in (None, '', []) else secondary
+        """
+        返回合并后的单值字段:
+        - 若其中一个为空，取非空
+        - 若两者非空且不同，使用“value1 | value2”串联（去重保持顺序）
+        """
+        empty = (None, '', [])
+        if primary in empty and secondary in empty:
+            return None
+        if primary in empty:
+            return secondary
+        if secondary in empty:
+            return primary
+        if primary == secondary:
+            return primary
+        # 去重串联
+        merged = []
+        for v in (primary, secondary):
+            if v not in merged:
+                merged.append(v)
+        return " | ".join(merged)
     
     def should_merge(self, chunk1: Dict, chunk2: Dict, similarity: float) -> bool:
         """
@@ -447,6 +519,13 @@ class EmbeddingOptimizer:
         if 'metadata' in c and 'dialogues' in c['metadata']:
             cleaned_dialogues = []
             for dlg in c['metadata']['dialogues']:
+                # 若 action_desc 为空，尝试从 state_changes 中补上最后一次动作描述
+                if (not dlg.get('action_desc')) and dlg.get('state_changes'):
+                    for chg in reversed(dlg['state_changes']):
+                        if chg.get('type') == 'action' and chg.get('value'):
+                            dlg = dict(dlg)  # 不改原引用
+                            dlg['action_desc'] = chg['value']
+                            break
                 # 移除null和空字符串字段
                 cleaned_dlg = {k: v for k, v in dlg.items() if v not in (None, '', [])}
                 
@@ -479,6 +558,13 @@ class EmbeddingOptimizer:
         elif 'meta' in c and 'dlgs' in c['meta']:
             cleaned_dlgs = []
             for dlg in c['meta']['dlgs']:
+                # 优化格式：若 act_desc 为空，尝试从 chg 中补最后一次动作
+                if (not dlg.get('act_desc')) and dlg.get('chg'):
+                    for chg in reversed(dlg['chg']):
+                        if chg.get('type') == 'action' and chg.get('value'):
+                            dlg = dict(dlg)
+                            dlg['act_desc'] = chg['value']
+                            break
                 cleaned_dlg = {k: v for k, v in dlg.items() if v not in (None, '', [])}
                 
                 # 处理动作字段冗余

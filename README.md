@@ -28,7 +28,7 @@ python3 vn_chunker.py txt/ --fine-grained -o chunks.json
 
 ```bash
 # 语义合并 + 自动数据清洗
-python3 embedding_optimizer.py chunks.json -o optimized_final.json --keep-voice-refs --keep-emotions
+python3 embedding_optimizer.py chunks.json -o optimized_final.json
 ```
 
 *(注意：此步骤已集成原本独立的 `optimizer.py` 功能，无需额外运行其他脚本)*
@@ -64,10 +64,14 @@ python3 embedding_optimizer.py [输入文件] -o [输出文件] [参数]
 - `--api-url`: Embedding API 地址 (默认 `http://192.168.123.113:9997`)
 - `--model-uid`: 模型及其 ID (默认 `bge-m3`)
 - `--similarity-threshold`: 相似度阈值 (默认 0.84，适合合并细粒度碎片)
+- `--min-merge-size`: 最小合并大小 (默认 150)
+- `--max-merged-size`: 合并后最大大小 (默认 2000)
 - `--no-clean`: 仅合并但不执行数据清洗 (不推荐)
 - `--keep-voice-refs` / `--keep-emotions`: 清理时保留语音 / 情绪元数据（默认已保留）
 - `--drop-voice-refs` / `--drop-emotions`: 如需精简输出可显式删除对应字段
-- `--analyze`: 优化后生成语义连贯性报告（默认不生成）
+- `--analyze`: 优化后生成语义连贯性报告（默认不生成，需显式开启）
+
+默认行为：嵌入文本会携带全部可用的结构化元数据（场景/时间/天气/场景类型/BGM/角色、对话级与场景级的表情、动作、state_changes、voice_refs），并在字段冲突时使用 `value1 | value2` 串联保留全部线索；若对话缺少动作描述，会自动从 state_changes 补回最后一次动作描述。
 
 ### 辅助工具
 
@@ -120,6 +124,10 @@ python3 embedding_optimizer.py [输入文件] -o [输出文件] [参数]
 
 ## 📝 开发日志
 
+- **v2.3**:
+  - chunker 解析支持 `#` 注释式指令，新增场景级 actions/state_changes，统一规范化地点/时间/表情/动作等字段。
+  - embedding_optimizer 现在默认使用全量元数据（含 voice_refs、state_changes、场景级表情/动作），冲突字段用 `A | B` 串联保留信息，并在清洗时从 state_changes 补回缺失的动作描述。
+  - 语义报告改为显式开启 (`--analyze`)，避免默认长时间运行。
 - **v2.2**: 
   - 分块重叠按 token 数和对话组自动回溯，减少上下文断层。
   - 合并后重新计数 token / 对话数，保证嵌入长度准确。

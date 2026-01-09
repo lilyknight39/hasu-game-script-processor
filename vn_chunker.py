@@ -36,6 +36,7 @@ class DialogueLine:
     emotion_after: Optional[str] = None   # 对话后的表情变化
     action: Optional[str] = None        # 动作ID (如 mot_01_30012)
     action_desc: str = ''               # 动作描述 (如 "頷く")
+    state_changes: Optional[List[Dict]] = None  # 对话间的状态变化记录
 
 
 @dataclass
@@ -48,6 +49,8 @@ class ChunkMetadata:
     location: str
     bgm: str
     emotions: Dict[str, str]
+    actions: Dict[str, str]
+    state_changes: List[Dict]
     voice_refs: List[str]
     chunk_type: str
     token_count: int
@@ -60,6 +63,10 @@ class ChunkMetadata:
     def __post_init__(self):
         if self.dialogues is None:
             self.dialogues = []
+        if self.actions is None:
+            self.actions = {}
+        if self.state_changes is None:
+            self.state_changes = []
 
 
 @dataclass
@@ -100,6 +107,8 @@ class Chunk:
                 compact_dlg['act_desc'] = dlg['action_desc']
             elif dlg.get('action'):
                 compact_dlg['act'] = dlg['action']
+            if dlg.get('state_changes'):
+                compact_dlg['chg'] = dlg['state_changes']
             
             optimized_dialogues.append(compact_dlg)
         
@@ -135,16 +144,15 @@ class VisualNovelChunker:
     DIALOGUE_END = r'^\[ノベルテキスト削除\]★#+$'
     
     # 角色相关（增强版：提取注释）
-    # 角色相关（增强版：提取注释）
     # 角色/表情/动作允许日文与下划线，兼容“キャラモーション即時再生”
-    CHARACTER_DISPLAY = r'^\[キャラ表示\s+([^\s\]]+)\s+'
-    CHARACTER_MESSAGE = r'^\[メッセージ表示\s+([^\s\]]+)\s+(vo_adv_\d+_\d+_m\d+_\d+@\w+)\s+(.+?)\]$'
-    CHARACTER_EMOTION = r'^\[キャラ表情変更\s+([^\s\]]+)\s+([^\s\]]+)\](?:#(.+))?$'  # 捕获注释
-    CHARACTER_MOTION = r'^\[キャラモーション(?:即時)?再生\s+([^\s\]]+)\s+([\w_]+)\s*.*?\](?:#(.+))?$'  # 捕获动作注释
+    CHARACTER_DISPLAY = r'^\s*#*\[キャラ表示\s+([^\s\]]+)\s+'
+    CHARACTER_MESSAGE = r'^\s*#*\[メッセージ表示\s+([^\s\]]+)\s+(vo_adv_\d+_\d+_m\d+_\d+@\w+)\s+(.+?)\]$'
+    CHARACTER_EMOTION = r'^\s*#*\[キャラ表情変更\s+([^\s\]]+)\s+([^\s\]]+)\](?:#(.+))?$'  # 捕获注释
+    CHARACTER_MOTION = r'^\s*#*\[キャラモーション(?:即時)?再生\s+([^\s\]]+)\s+([^\s\]]+)\s*.*?\](?:#(.+))?$'  # 捕获动作注释
     
     # 背景和环境（增强版：提取注释）
-    BACKGROUND_PATTERN = r'^\[背景表示\s+([\w_]+)\s*([^\]]*?)\](?:#(.+))?$'
-    BGM_PATTERN = r'^\[BGM再生\s+(\w+)\s+'
+    BACKGROUND_PATTERN = r'^\s*#*\[背景表示\s+([^\s\]]+)\s*([^\]]*?)\](?:#(.+))?$'
+    BGM_PATTERN = r'^\s*#*\[BGM再生\s+([^\s\]]+)\s+'
     def __init__(self, 
                  overlap_lines: int = 3,
                  target_chunk_size: int = 2000,
@@ -197,6 +205,7 @@ class VisualNovelChunker:
         self.character_motion_re = re.compile(self.CHARACTER_MOTION)  # 新增
         self.background_re = re.compile(self.BACKGROUND_PATTERN)
         self.bgm_re = re.compile(self.BGM_PATTERN)
+        self.se_re = re.compile(r'^\s*#*\[SE再生\s+([^\s\]]+)\s*')
         
         # 加载motion映射表
         self.motion_mappings = {}
@@ -208,6 +217,47 @@ class VisualNovelChunker:
                 logger.info(f"加载了 {len(self.motion_mappings)} 个motion映射")
         except Exception as e:
             logger.warning(f"无法加载motion映射表: {e}, 将只使用注释")
+
+    def _normalize_text(self, text: str) -> str:
+        if not text:
+            return ''
+        text = text.replace('　', ' ')
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text
+
+    def _normalize_location(self, text: str) -> str:
+        text = self._normalize_text(text)
+        if not text:
+            return ''
+        text = re.sub(r'[／/・]+', '_', text)
+        text = re.sub(r'[_\\s]+', '_', text)
+        return text
+
+    def _normalize_label(self, text: str) -> str:
+        return self._normalize_text(text)
+
+    def _normalize_time_keyword(self, raw: str) -> str:
+        if not raw:
+            return ''
+        raw = raw.lower()
+        mapping = {
+            '朝': 'morning',
+            'morning': 'morning',
+            '昼': 'afternoon',
+            '午後': 'afternoon',
+            'afternoon': 'afternoon',
+            '夕': 'evening',
+            '夕方': 'evening',
+            'evening': 'evening',
+            '夜': 'night',
+            '夜中': 'night',
+            '深夜': 'night',
+            'night': 'night',
+        }
+        for key, val in mapping.items():
+            if key in raw:
+                return val
+        return ''
     
     def parse_script(self, file_path: str) -> List[str]:
         """
@@ -261,7 +311,7 @@ class VisualNovelChunker:
         logger.info(f"检测到 {len(scenes)} 个场景")
         return scenes
     
-    def extract_dialogues(self, scene_lines: List[str]) -> List[List[Dict]]:
+    def extract_dialogues(self, scene_lines: List[str]) -> List[Dict]:
         """
         提取对话组（支持两种格式）
         
@@ -271,20 +321,26 @@ class VisualNovelChunker:
         Returns:
             对话组列表
         """
-        dialogue_groups = []
-        current_group = []
+        dialogue_groups: List[Dict] = []
+        current_group: List[Dict] = []
+        group_start: Optional[int] = None
+        group_end: Optional[int] = None
         
-        for line in scene_lines:
+        for i, line in enumerate(scene_lines):
             # 匹配带语音的对话 - [ノベルテキスト追加] (102系列)
             match = self.dialogue_re.match(line)
             if match:
                 dialogue_text = match.group(1)
                 character = match.group(2)
+                if group_start is None:
+                    group_start = i
+                group_end = i
                 current_group.append({
                     'text': dialogue_text,
                     'character': character,
                     'has_voice': True,
-                    'raw_line': line
+                    'raw_line': line,
+                    'line_idx': i
                 })
                 continue
             
@@ -292,11 +348,15 @@ class VisualNovelChunker:
             match = self.dialogue_no_voice_re.match(line)
             if match:
                 dialogue_text = match.group(1)
+                if group_start is None:
+                    group_start = i
+                group_end = i
                 current_group.append({
                     'text': dialogue_text,
                     'character': 'narrator',
                     'has_voice': False,
-                    'raw_line': line
+                    'raw_line': line,
+                    'line_idx': i
                 })
                 continue
             
@@ -305,36 +365,62 @@ class VisualNovelChunker:
             if match:
                 character = match.group(1)
                 dialogue_text = match.group(3)
+                if group_start is None:
+                    group_start = i
+                group_end = i
                 current_group.append({
                     'text': dialogue_text,
                     'character': character,
                     'has_voice': True,
-                    'raw_line': line
+                    'raw_line': line,
+                    'line_idx': i
                 })
                 # 103+系列没有明确的对话组结束标记
                 # 连续5句同格式视为一组，或遇到其他命令时结束
                 if len(current_group) >= 5:
-                    dialogue_groups.append(current_group)
+                    dialogue_groups.append({
+                        'start': group_start,
+                        'end': group_end,
+                        'dialogues': current_group
+                    })
                     current_group = []
+                    group_start = None
+                    group_end = None
                 continue
             
             # 匹配对话结束标记 - [ノベルテキスト削除] (102系列)
             if self.dialogue_end_re.match(line):
                 if current_group:
-                    dialogue_groups.append(current_group)
+                    dialogue_groups.append({
+                        'start': group_start,
+                        'end': group_end,
+                        'dialogues': current_group
+                    })
                     current_group = []
+                    group_start = None
+                    group_end = None
                 continue
             
             # 遇到其他命令（非对话）时，结束当前对话组
             if line.strip().startswith('[') and current_group:
                 # 但不是对话相关命令
                 if not any(cmd in line for cmd in ['ノベルテキスト', 'メッセージ表示', '待機']):
-                    dialogue_groups.append(current_group)
+                    dialogue_groups.append({
+                        'start': group_start,
+                        'end': group_end,
+                        'dialogues': current_group
+                    })
                     current_group = []
+                    group_start = None
+                    group_end = None
         
         # 处理最后一组对话
         if current_group:
-            dialogue_groups.append(current_group)
+            dialogue_groups.append({
+                'start': group_start,
+                'end': group_end,
+                'dialogues': current_group
+            })
         
         return dialogue_groups
     
@@ -362,8 +448,25 @@ class VisualNovelChunker:
         """
         dialogues: List[DialogueLine] = []
         current_state: Dict[str, Dict[str, Optional[str]]] = {}
-        last_dialogue_idx: Optional[int] = None
-        last_dialogue_line: Optional[int] = None
+        last_dialogue_idx_by_char: Dict[str, int] = {}
+        last_dialogue_line_by_char: Dict[str, int] = {}
+        pending_changes: Dict[str, List[Dict]] = {}
+        voice_to_char: Dict[str, str] = dict(getattr(self, '_voice_to_char', {}))
+
+        # 预扫描：建立 voice_id -> 角色名映射（本场景内）
+        for line in scene_lines:
+            disp_match = self.character_display_re.match(line)
+            if disp_match:
+                disp_char = disp_match.group(1)
+                em_tag = re.search(r'emotion_([A-Za-z0-9_]+)', line)
+                if em_tag:
+                    voice_to_char[em_tag.group(1)] = disp_char
+            msg_match = self.character_message_re.match(line)
+            if msg_match:
+                voice_ref = msg_match.group(2)
+                if voice_ref and '@' in voice_ref:
+                    voice_id = voice_ref.split('@', 1)[1]
+                    voice_to_char[voice_id] = msg_match.group(1)
         
         def ensure_state(char: str):
             if char not in current_state:
@@ -372,6 +475,8 @@ class VisualNovelChunker:
                     'action': None,
                     'action_desc': ''
                 }
+            if char not in pending_changes:
+                pending_changes[char] = []
         
         for idx, line in enumerate(scene_lines):
             # 1) 表情事件
@@ -381,7 +486,9 @@ class VisualNovelChunker:
                 emotion_id = em_match.group(2)
                 emotion_comment = em_match.group(3) if len(em_match.groups()) >= 3 and em_match.group(3) else None
                 ensure_state(char)
-                current_state[char]['emotion'] = emotion_comment if emotion_comment else emotion_id
+                emotion_val = emotion_comment if emotion_comment else emotion_id
+                current_state[char]['emotion'] = emotion_val
+                pending_changes[char].append({'type': 'emotion', 'value': emotion_val, 'line': idx})
                 continue
             
             # 2) 动作事件
@@ -398,6 +505,11 @@ class VisualNovelChunker:
                     current_state[char]['action_desc'] = self.motion_mappings[action_id]
                 else:
                     current_state[char]['action_desc'] = ''
+                pending_changes[char].append({
+                    'type': 'action',
+                    'value': current_state[char]['action_desc'] or action_id,
+                    'line': idx
+                })
                 continue
             
             # 3) 对话匹配
@@ -412,13 +524,18 @@ class VisualNovelChunker:
                 character = match_msg.group(1)
                 voice_ref = match_msg.group(2)
                 text = match_msg.group(3)
+                # 记录 voice_id -> character 映射
+                if voice_ref and '@' in voice_ref:
+                    voice_id = voice_ref.split('@', 1)[1]
+                    voice_to_char[voice_id] = character
             
             if not dialogue_match:
                 match_dlg = self.dialogue_re.match(line)
                 if match_dlg:
                     dialogue_match = match_dlg
                     text = match_dlg.group(1)
-                    character = match_dlg.group(2)
+                    voice_id = match_dlg.group(2)
+                    character = voice_to_char.get(voice_id, voice_id)
                     voice_match = re.search(r'vo_adv_\d+_\d+_m\d+_\d+@\w+', line)
                     if voice_match:
                         voice_ref = voice_match.group(0)
@@ -447,25 +564,25 @@ class VisualNovelChunker:
             before_action = current_state[character].get('action')
             before_action_desc = current_state[character].get('action_desc', '')
             
-            # 如果存在上一句对话，且上一句对话的角色与本句相同，把当前状态写入上一句对话的 after
-            if last_dialogue_idx is not None:
-                last_dialogue = dialogues[last_dialogue_idx]
-                # 非对话区间长度提醒
-                if last_dialogue_line is not None:
-                    gap = idx - last_dialogue_line - 1
+            # 如果存在该角色上一句对话，将当前状态写入其 after
+            if character in last_dialogue_idx_by_char:
+                last_dialogue = dialogues[last_dialogue_idx_by_char[character]]
+                last_line = last_dialogue_line_by_char.get(character)
+                if last_line is not None:
+                    gap = idx - last_line - 1
                     if gap > 200:
-                        logger.debug(f"对话后非对话区段超过200行: 角色 {last_dialogue.character}, 行索引 {last_dialogue_line}->{idx}")
-                
-                if last_dialogue.character == character:
-                    last_dialogue.emotion_after = before_emotion
-                    # 对动作后态用描述优先
-                    if before_action_desc:
-                        last_dialogue.action_desc = before_action_desc
-                    elif before_action:
-                        last_dialogue.action = before_action
-                else:
-                    # 不同角色：仅更新对应角色状态，不写入上一句
-                    pass
+                        logger.debug(
+                            f"对话后非对话区段超过200行: 角色 {character}, 行索引 {last_line}->{idx}"
+                        )
+                last_dialogue.emotion_after = before_emotion
+                if before_action_desc:
+                    last_dialogue.action_desc = before_action_desc
+                elif before_action:
+                    last_dialogue.action = before_action
+                # 记录该角色对话间的状态变化序列
+                if pending_changes.get(character):
+                    last_dialogue.state_changes = pending_changes[character].copy()
+                pending_changes[character] = []
             
             # 创建当前对话
             dialogue = DialogueLine(
@@ -475,22 +592,26 @@ class VisualNovelChunker:
                 emotion_before=before_emotion,
                 emotion_after=None,
                 action=before_action,
-                action_desc=before_action_desc
+                action_desc=before_action_desc,
+                state_changes=[]
             )
             dialogues.append(dialogue)
-            last_dialogue_idx = len(dialogues) - 1
-            last_dialogue_line = idx
+            last_dialogue_idx_by_char[character] = len(dialogues) - 1
+            last_dialogue_line_by_char[character] = idx
+            pending_changes[character] = []
         
-        # 场景结束时，补充最后一句对话的 after（用当前状态）
-        if last_dialogue_idx is not None:
-            last_dialogue = dialogues[last_dialogue_idx]
-            state = current_state.get(last_dialogue.character, {})
+        # 场景结束时，为每个角色补充最后一句对话的 after（用当前状态）
+        for char, last_idx in last_dialogue_idx_by_char.items():
+            last_dialogue = dialogues[last_idx]
+            state = current_state.get(char, {})
             if state:
                 last_dialogue.emotion_after = state.get('emotion', last_dialogue.emotion_after)
                 if state.get('action_desc'):
                     last_dialogue.action_desc = state.get('action_desc')
                 elif state.get('action'):
                     last_dialogue.action = state.get('action')
+            if pending_changes.get(char):
+                last_dialogue.state_changes = pending_changes[char].copy()
         
         return dialogues
     
@@ -516,6 +637,8 @@ class VisualNovelChunker:
             'location': '',
             'bgm': '',
             'emotions': {},
+            'actions': {},
+            'state_changes': [],
             'voice_refs': [],
             'time_period': '',
             'weather': '',
@@ -528,30 +651,55 @@ class VisualNovelChunker:
         
         # 第一遍：收集基础信息
         for line in scene_lines:
+            norm_line = line.lstrip('#').strip()
             # 提取角色
             match = self.character_display_re.match(line)
             if match:
-                metadata['characters'].add(match.group(1))
+                metadata['characters'].add(self._normalize_label(match.group(1)))
             
             match = self.character_message_re.match(line)
             if match:
-                metadata['characters'].add(match.group(1))
+                metadata['characters'].add(self._normalize_label(match.group(1)))
             
             # 提取角色表情（优先使用注释中的人类可读名称）
             match = self.character_emotion_re.match(line)
             if match:
-                character = match.group(1)
-                emotion_id = match.group(2)
+                character = self._normalize_label(match.group(1))
+                emotion_id = self._normalize_label(match.group(2))
                 emotion_comment = match.group(3) if len(match.groups()) >= 3 and match.group(3) else None
                 
                 # 优先使用注释,否则使用ID
-                emotion = emotion_comment if emotion_comment else emotion_id
+                emotion = self._normalize_label(emotion_comment) if emotion_comment else emotion_id
                 metadata['emotions'][character] = emotion
+                metadata['state_changes'].append({
+                    'type': 'emotion',
+                    'character': character,
+                    'value': emotion
+                })
+
+            # 提取角色动作（用于元数据记录）
+            match = self.character_motion_re.match(line)
+            if match:
+                character = self._normalize_label(match.group(1))
+                action_id = self._normalize_label(match.group(2))
+                action_comment = match.group(3) if len(match.groups()) >= 3 and match.group(3) else None
+                if action_comment:
+                    action_desc = self._normalize_label(action_comment)
+                elif action_id in self.motion_mappings:
+                    action_desc = self.motion_mappings[action_id]
+                else:
+                    action_desc = ''
+                metadata['actions'][character] = action_desc or action_id
+                metadata['state_changes'].append({
+                    'type': 'action',
+                    'character': character,
+                    'value': action_desc or action_id
+                })
             
             # 提取BGM
             match = self.bgm_re.match(line)
             if match and not metadata['bgm']:
-                metadata['bgm'] = match.group(1)
+                metadata['bgm'] = self._normalize_label(match.group(1))
             
             # 提取语音引用
             if 'vo_adv_' in line:
@@ -559,18 +707,21 @@ class VisualNovelChunker:
                 metadata['voice_refs'].extend(voice_matches)
             
             # 提取天气（从SE，中等优先级）
-            if '[SE再生' in line and not metadata['weather']:
-                if 'rain' in line or '雨' in line:
+            if self.se_re.match(line) and not metadata['weather']:
+                lower_line = norm_line.lower()
+                if 'rain' in lower_line or '雨' in norm_line:
                     metadata['weather'] = 'rain'
-                elif 'thunder' in line or '雷' in line:
+                elif 'thunder' in lower_line or '雷' in norm_line:
                     metadata['weather'] = 'storm'
-                elif 'wind' in line or '風' in line:
+                elif 'wind' in lower_line or '風' in norm_line:
                     metadata['weather'] = 'windy'
+                elif 'snow' in lower_line or '雪' in norm_line:
+                    metadata['weather'] = 'snow'
             
             # 提取背景（含注释解析 + 映射表fallback）
             match = self.background_re.match(line)
             if match:
-                bg_id = match.group(1)
+                bg_id = self._normalize_label(match.group(1))
                 bg_comment = match.group(3) if len(match.groups()) >= 3 and match.group(3) else None
                 
                 # Location: ID作为初始值（低优先级）
@@ -580,6 +731,7 @@ class VisualNovelChunker:
                 
                 # 尝试从注释解析（高优先级）
                 if bg_comment:
+                    bg_comment = self._normalize_text(bg_comment)
                     time_keywords = ['朝', '昼', '夕', '夜', '午前', '午後', 
                                    'morning', 'afternoon', 'evening', 'night']
                     
@@ -595,6 +747,7 @@ class VisualNovelChunker:
                     
                     # 2. 统一分隔符
                     clean_comment = clean_comment.replace('　', ' ')
+                    clean_comment = re.sub(r'[／/・,、]+', ' ', clean_comment)
                     
                     # 3. 分割
                     if '_' in clean_comment:
@@ -620,25 +773,14 @@ class VisualNovelChunker:
                     
                     # 设置时间
                     if extracted_time and metadata['_time_source'] < 3:
-                        if extracted_time == '朝' or extracted_time == 'morning':
-                            metadata['time_period'] = 'morning'
-                            metadata['_time_source'] = 3
-                        elif extracted_time == '昼':
-                            metadata['time_period'] = 'afternoon'
-                            metadata['_time_source'] = 3
-                        elif extracted_time == '午後' or extracted_time == 'afternoon':
-                            metadata['time_period'] = 'afternoon'
-                            metadata['_time_source'] = 3
-                        elif extracted_time == '夕' or extracted_time == 'evening':
-                            metadata['time_period'] = 'evening'
-                            metadata['_time_source'] = 3
-                        elif extracted_time == '夜' or extracted_time == 'night':
-                            metadata['time_period'] = 'night'
+                        normalized_time = self._normalize_time_keyword(extracted_time)
+                        if normalized_time:
+                            metadata['time_period'] = normalized_time
                             metadata['_time_source'] = 3
                     
                     # 更新location
                     if location_parts and metadata['_location_source'] < 2:
-                        metadata['location'] = '_'.join(location_parts)
+                        metadata['location'] = self._normalize_location('_'.join(location_parts))
                         metadata['_location_source'] = 2
                     
                     # 从注释推断场景类型（高优先级）
@@ -656,7 +798,7 @@ class VisualNovelChunker:
                         elif 'ステージ' in bg_comment or 'stage' in comment_lower:
                             metadata['scene_type'] = 'stage'
                             metadata['_scene_type_source'] = 2
-                        elif '屋外' in bg_comment or '正門' in bg_comment or '校庭' in bg_comment:
+                        elif '屋外' in bg_comment or '正門' in bg_comment or '校庭' in bg_comment or '屋上' in bg_comment:
                             metadata['scene_type'] = 'outdoor'
                             metadata['_scene_type_source'] = 2
                 
@@ -726,9 +868,9 @@ class VisualNovelChunker:
             for d in structured_dialogues:
                 if d.character != 'narrator':
                     if d.emotion_after:
-                        metadata['emotions'][d.character] = d.emotion_after
+                        metadata['emotions'][self._normalize_label(d.character)] = self._normalize_label(d.emotion_after)
                     elif d.emotion_before and d.character not in metadata['emotions']:
-                        metadata['emotions'][d.character] = d.emotion_before
+                        metadata['emotions'][self._normalize_label(d.character)] = self._normalize_label(d.emotion_before)
             
             # 更新voice_refs
             dialogue_voices = [d.voice_ref for d in structured_dialogues if d.voice_ref]
@@ -741,8 +883,41 @@ class VisualNovelChunker:
                     unique_voices.append(v)
             metadata['voice_refs'] = unique_voices
         
+        # 统一规范化字段
+        metadata['location'] = self._normalize_location(metadata['location'])
+        metadata['bgm'] = self._normalize_label(metadata['bgm'])
+        metadata['time_period'] = self._normalize_label(metadata['time_period'])
+        metadata['weather'] = self._normalize_label(metadata['weather'])
+        metadata['scene_type'] = self._normalize_label(metadata['scene_type'])
+
+        # 规范化情绪/动作字典
+        metadata['emotions'] = {
+            self._normalize_label(k): self._normalize_label(v)
+            for k, v in metadata['emotions'].items()
+            if self._normalize_label(k) and self._normalize_label(v)
+        }
+        metadata['actions'] = {
+            self._normalize_label(k): self._normalize_label(v)
+            for k, v in metadata['actions'].items()
+            if self._normalize_label(k) and self._normalize_label(v)
+        }
+
+        # 规范化状态变化列表
+        normalized_changes = []
+        for item in metadata['state_changes']:
+            character = self._normalize_label(item.get('character', ''))
+            value = self._normalize_label(item.get('value', ''))
+            if not character or not value:
+                continue
+            normalized_changes.append({
+                'type': item.get('type', ''),
+                'character': character,
+                'value': value
+            })
+        metadata['state_changes'] = normalized_changes
+
         # 转换set为稳定的list（排序保证嵌入一致性）
-        metadata['characters'] = sorted(metadata['characters'])
+        metadata['characters'] = sorted(self._normalize_label(c) for c in metadata['characters'] if self._normalize_label(c))
         
         return metadata
     
@@ -935,6 +1110,8 @@ class VisualNovelChunker:
             location=meta_dict['location'],
             bgm=meta_dict['bgm'],
             emotions=meta_dict['emotions'],
+            actions=meta_dict.get('actions', {}),
+            state_changes=meta_dict.get('state_changes', []),
             voice_refs=meta_dict['voice_refs'],
             chunk_type='scene',
             token_count=token_count,
@@ -971,9 +1148,9 @@ class VisualNovelChunker:
         current_chunk_lines = []
         current_tokens = 0
         sub_chunk_idx = 0
-        recent_groups: List[List[Dict]] = []
+        recent_groups: List[Dict] = []
 
-        def select_overlap_groups(groups: List[List[Dict]]) -> List[List[Dict]]:
+        def select_overlap_groups(groups: List[Dict]) -> List[Dict]:
             """
             根据配置选择需要保留的重叠对话组。
             
@@ -986,7 +1163,7 @@ class VisualNovelChunker:
             accumulated_tokens = 0
             
             for g in reversed(groups):
-                group_text = '\n'.join([d['text'] for d in g])
+                group_text = '\n'.join([d['text'] for d in g['dialogues']])
                 group_tokens = self.count_tokens(group_text)
                 
                 need_more_lines = len(selected) < self.overlap_lines
@@ -1000,10 +1177,14 @@ class VisualNovelChunker:
             
             return selected
         
-        for group in dialogue_groups:
+        for idx, group in enumerate(dialogue_groups):
             # 计算这组对话的token数
-            group_text = '\n'.join([d['text'] for d in group])
+            group_text = '\n'.join([d['text'] for d in group['dialogues']])
             group_tokens = self.count_tokens(group_text)
+            prev_end = dialogue_groups[idx - 1]['end'] if idx > 0 else None
+            group_start = 0 if prev_end is None else prev_end + 1
+            next_start = dialogue_groups[idx + 1]['start'] if idx + 1 < len(dialogue_groups) else len(scene_lines)
+            group_lines = scene_lines[group_start:next_start]
             
             # 如果加上这组对话会超过最大限制，先保存当前chunk
             if current_tokens + group_tokens > self.max_chunk_size and current_chunk_lines:
@@ -1013,15 +1194,18 @@ class VisualNovelChunker:
                 
                 # 重置，保留overlap
                 overlap_groups = select_overlap_groups(recent_groups)
-                current_chunk_lines = [d['raw_line'] for g in overlap_groups for d in g]
-                current_tokens = self.count_tokens('\n'.join([d['text'] for g in overlap_groups for d in g]))
+                current_chunk_lines = [line for g in overlap_groups for line in g['lines']]
+                current_tokens = self.count_tokens('\n'.join([d['text'] for g in overlap_groups for d in g['dialogues']]))
                 recent_groups = overlap_groups.copy()
                 sub_chunk_idx += 1
             
             # 添加当前对话组
-            current_chunk_lines.extend([d['raw_line'] for d in group])
+            current_chunk_lines.extend(group_lines)
             current_tokens += group_tokens
-            recent_groups.append(group)
+            recent_groups.append({
+                'dialogues': group['dialogues'],
+                'lines': group_lines
+            })
         
         # 处理最后一个chunk
         if current_chunk_lines:
@@ -1087,6 +1271,23 @@ class VisualNovelChunker:
         lines = self.parse_script(file_path)
         if not lines:
             return []
+
+        # 预构建全文件 voice_id -> 角色名 映射
+        voice_to_char: Dict[str, str] = {}
+        for line in lines:
+            disp_match = self.character_display_re.match(line)
+            if disp_match:
+                disp_char = disp_match.group(1)
+                em_tag = re.search(r'emotion_([A-Za-z0-9_]+)', line)
+                if em_tag:
+                    voice_to_char[em_tag.group(1)] = disp_char
+            msg_match = self.character_message_re.match(line)
+            if msg_match:
+                voice_ref = msg_match.group(2)
+                if voice_ref and '@' in voice_ref:
+                    voice_id = voice_ref.split('@', 1)[1]
+                    voice_to_char[voice_id] = msg_match.group(1)
+        self._voice_to_char = voice_to_char
         
         # 检测场景边界
         scenes = self.detect_scene_boundaries(lines)
