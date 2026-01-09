@@ -191,6 +191,22 @@ class EmbeddingOptimizer:
         """获取chunk_id"""
         return chunk.get('id') or chunk.get('chunk_id', '')
     
+    def _merge_unique_list(self, first, second) -> List:
+        """合并列表并去重，保持顺序"""
+        merged = []
+        seen = set()
+        for item in (first or []) + (second or []):
+            if item in (None, ''):
+                continue
+            if item not in seen:
+                seen.add(item)
+                merged.append(item)
+        return merged
+
+    def _choose_field(self, primary, secondary):
+        """优先返回非空的primary，否则使用secondary"""
+        return primary if primary not in (None, '', []) else secondary
+    
     def should_merge(self, chunk1: Dict, chunk2: Dict, similarity: float) -> bool:
         """
         判断是否应该合并两个chunks
@@ -281,6 +297,40 @@ class EmbeddingOptimizer:
             dialogues2 = chunk2.get('metadata', {}).get('dialogues', [])
             merged_metadata['dialogues'] = dialogues1 + dialogues2
             
+            # 合并角色/语音引用/情绪等上下文信息
+            merged_metadata['characters'] = self._merge_unique_list(
+                merged_metadata.get('characters', []),
+                chunk2.get('metadata', {}).get('characters', [])
+            )
+            merged_metadata['voice_refs'] = self._merge_unique_list(
+                merged_metadata.get('voice_refs', []),
+                chunk2.get('metadata', {}).get('voice_refs', [])
+            )
+            merged_metadata['emotions'] = {
+                **chunk1.get('metadata', {}).get('emotions', {}),
+                **chunk2.get('metadata', {}).get('emotions', {})
+            }
+            merged_metadata['location'] = self._choose_field(
+                merged_metadata.get('location'),
+                chunk2.get('metadata', {}).get('location')
+            )
+            merged_metadata['time_period'] = self._choose_field(
+                merged_metadata.get('time_period'),
+                chunk2.get('metadata', {}).get('time_period')
+            )
+            merged_metadata['scene_type'] = self._choose_field(
+                merged_metadata.get('scene_type'),
+                chunk2.get('metadata', {}).get('scene_type')
+            )
+            merged_metadata['weather'] = self._choose_field(
+                merged_metadata.get('weather'),
+                chunk2.get('metadata', {}).get('weather')
+            )
+            merged_metadata['bgm'] = self._choose_field(
+                merged_metadata.get('bgm'),
+                chunk2.get('metadata', {}).get('bgm')
+            )
+            
             return {
                 'chunk_id': merged_metadata['chunk_id'],
                 'content': merged_content,
@@ -299,6 +349,23 @@ class EmbeddingOptimizer:
             dlgs1 = merged_meta.get('dlgs', [])
             dlgs2 = chunk2.get('meta', {}).get('dlgs', [])
             merged_meta['dlgs'] = dlgs1 + dlgs2
+            
+            merged_meta['chars'] = self._merge_unique_list(
+                merged_meta.get('chars', []),
+                chunk2.get('meta', {}).get('chars', [])
+            )
+            merged_meta['loc'] = self._choose_field(
+                merged_meta.get('loc'),
+                chunk2.get('meta', {}).get('loc')
+            )
+            merged_meta['time'] = self._choose_field(
+                merged_meta.get('time'),
+                chunk2.get('meta', {}).get('time')
+            )
+            merged_meta['bgm'] = self._choose_field(
+                merged_meta.get('bgm'),
+                chunk2.get('meta', {}).get('bgm')
+            )
             
             return {
                 'id': f"{self._get_chunk_id(chunk1)}_merged",
@@ -341,6 +408,32 @@ class EmbeddingOptimizer:
             # 移除冗余顶层字段
             c['metadata'].pop('voice_refs', None)
             c['metadata'].pop('emotions', None)
+            
+            # 清理空的辅助字段，保持角色列表为非空字符串
+            c['metadata']['characters'] = [ch for ch in c['metadata'].get('characters', []) if ch]
+            for key in ['location', 'time_period', 'scene_type', 'weather', 'bgm']:
+                if c['metadata'].get(key) in ('', None, []):
+                    c['metadata'].pop(key, None)
+        elif 'meta' in c and 'dlgs' in c['meta']:
+            cleaned_dlgs = []
+            for dlg in c['meta']['dlgs']:
+                cleaned_dlg = {k: v for k, v in dlg.items() if v not in (None, '', [])}
+                
+                # 处理动作字段冗余
+                has_act_desc = 'act_desc' in cleaned_dlg and cleaned_dlg['act_desc'].strip()
+                has_act = 'act' in cleaned_dlg and cleaned_dlg['act']
+                if has_act_desc:
+                    cleaned_dlg.pop('act', None)
+                elif not has_act:
+                    cleaned_dlg.pop('act', None)
+                    cleaned_dlg.pop('act_desc', None)
+                
+                cleaned_dlgs.append(cleaned_dlg)
+            c['meta']['dlgs'] = cleaned_dlgs
+            c['meta']['chars'] = [ch for ch in c['meta'].get('chars', []) if ch]
+            for key in ['loc', 'time', 'bgm']:
+                if c['meta'].get(key) in ('', None, []):
+                    c['meta'].pop(key, None)
             
         # 移除结构冗余
         c.pop('parent_chunk_id', None)

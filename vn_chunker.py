@@ -136,10 +136,11 @@ class VisualNovelChunker:
     
     # 角色相关（增强版：提取注释）
     # 角色相关（增强版：提取注释）
-    CHARACTER_DISPLAY = r'^\[キャラ表示\s+(\w+)\s+'
-    CHARACTER_MESSAGE = r'^\[メッセージ表示\s+(\w+)\s+(vo_adv_\d+_\d+_m\d+_\d+@\w+)\s+(.+?)\]$'
-    CHARACTER_EMOTION = r'^\[キャラ表情変更\s+(\w+)\s+(\w+)\](?:#(.+))?$'  # 捕获注释
-    CHARACTER_MOTION = r'^\[キャラモーション再生\s+(\w+)\s+([\w_]+)\s*.*?\](?:#(.+))?$'  # 捕获动作注释
+    # 角色/表情/动作允许日文与下划线，兼容“キャラモーション即時再生”
+    CHARACTER_DISPLAY = r'^\[キャラ表示\s+([^\s\]]+)\s+'
+    CHARACTER_MESSAGE = r'^\[メッセージ表示\s+([^\s\]]+)\s+(vo_adv_\d+_\d+_m\d+_\d+@\w+)\s+(.+?)\]$'
+    CHARACTER_EMOTION = r'^\[キャラ表情変更\s+([^\s\]]+)\s+([^\s\]]+)\](?:#(.+))?$'  # 捕获注释
+    CHARACTER_MOTION = r'^\[キャラモーション(?:即時)?再生\s+([^\s\]]+)\s+([\w_]+)\s*.*?\](?:#(.+))?$'  # 捕获动作注释
     
     # 背景和环境（增强版：提取注释）
     BACKGROUND_PATTERN = r'^\[背景表示\s+([\w_]+)\s*([^\]]*?)\](?:#(.+))?$'
@@ -262,19 +263,6 @@ class VisualNovelChunker:
     
     def extract_dialogues(self, scene_lines: List[str]) -> List[List[Dict]]:
         """
-        提取对话组
-        
-        Args:
-            scene_lines: 场景行列表
-            
-        Returns:
-            对话组列表
-        """
-        dialogue_groups = []
-        current_group = []
-        
-    def extract_dialogues(self, scene_lines: List[str]) -> List[List[Dict]]:
-        """
         提取对话组（支持两种格式）
         
         Args:
@@ -381,10 +369,6 @@ class VisualNovelChunker:
             按时间顺序的对话列表
         """
         dialogues = []
-        
-        # 编译动作正则
-        motion_re = re.compile(r'^\[キャラモーション再生\s+(\w+)\s+([\w_]+)\s+.*?\](?:#(.+))?$')
-        
         for i, line in enumerate(scene_lines):
             dialogue_line = None
             character = None
@@ -420,8 +404,8 @@ class VisualNovelChunker:
             # 如果找到对话,清理文本并提取上下文
             if character and text:
                 # 清理text中嵌入的命令(motion/emotion等)
-                # 移除 [キャラモーション再生 xxx] 格式
-                text = re.sub(r'\[キャラモーション再生[^\]]+\](?:#[^\]]+)?', '', text)
+                # 移除 [キャラモーション(即時)再生 xxx] 格式
+                text = re.sub(r'\[キャラモーション(?:即時)?再生[^\]]+\](?:#[^\]]+)?', '', text)
                 # 移除 [キャラ表情変更 xxx] 格式
                 text = re.sub(r'\[キャラ表情変更[^\]]+\](?:#[^\]]+)?', '', text)
                 # 移除其他可能的命令
@@ -472,7 +456,8 @@ class VisualNovelChunker:
                     
                     # 如果遇到新的对话,停止搜索
                     if (self.character_message_re.match(next_line) or 
-                        self.dialogue_re.match(next_line)):
+                        self.dialogue_re.match(next_line) or
+                        self.dialogue_no_voice_re.match(next_line)):
                         break
                     
                     # 查找表情变化(优先使用注释)

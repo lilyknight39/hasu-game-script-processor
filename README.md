@@ -28,7 +28,7 @@ python3 vn_chunker.py txt/ --fine-grained -o chunks.json
 
 ```bash
 # 语义合并 + 自动数据清洗
-python embedding_optimizer.py chunks.json -o optimized_final.json
+python3 embedding_optimizer.py chunks.json -o optimized_final.json
 ```
 
 *(注意：此步骤已集成原本独立的 `optimizer.py` 功能，无需额外运行其他脚本)*
@@ -57,7 +57,7 @@ python3 vn_chunker.py [输入目录] [参数] --fine-grained
 ### Step 2: 运行优化器 (`embedding_optimizer.py`)
 
 ```bash
-python embedding_optimizer.py [输入文件] -o [输出文件] [参数]
+python3 embedding_optimizer.py [输入文件] -o [输出文件] [参数]
 ```
 
 **常用参数：**
@@ -117,4 +117,5 @@ python embedding_optimizer.py [输入文件] -o [输出文件] [参数]
 
 ## 📝 开发日志
 
+- **v2.1**: 强化数据解析与合并质量：支持日文角色/动作匹配与“キャラモーション即時再生”，修正无语音对话的情感误贴问题，合并 Chunk 时同步角色/场景元数据并清洗优化格式残留的空字段。
 - **v2.0**: 优化工作流。将数据清洗 (`optimizer.py`) 逻辑集成至语义优化器中，修复了合并 Chunk 时的对话丢失 Bug。
