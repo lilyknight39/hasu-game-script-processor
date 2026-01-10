@@ -33,13 +33,49 @@ def convert_chunks_to_dify_csv(input_file='final_chunks.json', output_file='dify
             writer = csv.writer(f)
             # Dify标准列名
             writer.writerow(['text', 'keywords', 'scene_id'])
+
+            def normalize_chunk(chunk, idx):
+                """兼容 standard / optimized / dense 三种格式，返回 (chunk_id, content, meta_like_dict)"""
+                if 'metadata' in chunk:
+                    return chunk.get('chunk_id', f'chunk_{idx}'), chunk.get('content', ''), chunk.get('metadata', {})
+                if 'ctx' in chunk:
+                    ctx = chunk.get('ctx', {})
+                    stats = chunk.get('stats', {})
+                    meta = {
+                        'time_period': ctx.get('time', ''),
+                        'location': ctx.get('loc', ''),
+                        'weather': ctx.get('weather', ''),
+                        'scene_type': ctx.get('type', ''),
+                        'bgm': ctx.get('bgm', ''),
+                        'characters': ctx.get('chars', []),
+                        'dialogue_count': stats.get('dlg', len(chunk.get('script', []))),
+                        'scene_id': chunk.get('scene', chunk.get('id', '')),
+                        'source_file': chunk.get('src', '')
+                    }
+                    return chunk.get('id', f'chunk_{idx}'), chunk.get('text') or chunk.get('content', ''), meta
+                if 'meta' in chunk:
+                    m = chunk.get('meta', {})
+                    meta = {
+                        'time_period': m.get('time', ''),
+                        'location': m.get('loc', ''),
+                        'weather': m.get('weather', ''),
+                        'scene_type': m.get('scene_type', ''),
+                        'bgm': m.get('bgm', ''),
+                        'characters': m.get('chars', []),
+                        'dialogue_count': m.get('dlg_cnt', 0),
+                        'scene_id': m.get('scene', ''),
+                        'source_file': ''
+                    }
+                    return chunk.get('id', f'chunk_{idx}'), chunk.get('content', ''), meta
+                return chunk.get('id', f'chunk_{idx}'), chunk.get('content', ''), {}
             
             for idx, chunk in enumerate(chunks, 1):
-                # 提取核心数据
-                chunk_id = chunk.get('chunk_id', f'chunk_{idx}')
-                raw_content = chunk.get('content', '')
-                meta = chunk.get('metadata', {})
+                # 提取核心数据（兼容多种chunk格式）
+                chunk_id, raw_content, meta = normalize_chunk(chunk, idx)
                 
+                if not meta.get('source_file') and meta.get('scene_id'):
+                    meta['source_file'] = meta['scene_id'].split('_scene_', 1)[0] + '.txt'
+
                 # ============ 构建环境上下文头部 ============
                 header_lines = []
                 header_lines.append(f"【シーンID】{chunk_id}")

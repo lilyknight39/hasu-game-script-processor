@@ -33,6 +33,26 @@ python3 embedding_optimizer.py chunks.json -o optimized_final.json
 
 *(注意：此步骤已集成原本独立的 `optimizer.py` 功能，无需额外运行其他脚本)*
 
+推荐在有限上下文窗口内使用的高密度输出方式：
+
+```bash
+# 最推荐（信息密度最高）：箭头流时间线（无行号，仅状态序列）
+python3 vn_chunker.py txt/ --fine-grained -o timeline_flow_chunks.json --format timeline_flow
+
+# 次推荐：紧凑时间线（短标签，无括号，保留行号便于溯源）
+python3 vn_chunker.py txt/ --fine-grained -o timeline_compact_chunks.json --format timeline_compact
+
+# 兼顾可读性：标准时间线（大括号标签，带行号）
+python3 vn_chunker.py txt/ --fine-grained -o timeline_chunks.json --format timeline
+
+# 保持单份文本但包含位置行号的高密度格式
+python3 vn_chunker.py txt/ --fine-grained -o dense_chunks.json --format dense
+
+# 传统标准/压缩格式
+python3 vn_chunker.py txt/ --fine-grained -o chunks.json               # standard
+python3 vn_chunker.py txt/ --fine-grained -o optimized_chunks.json --format optimized
+```
+
 ---
 
 ## 🚀 详细使用指南
@@ -72,6 +92,7 @@ python3 embedding_optimizer.py [输入文件] -o [输出文件] [参数]
 - `--analyze`: 优化后生成语义连贯性报告（默认不生成，需显式开启）
 
 默认行为：嵌入文本会携带全部可用的结构化元数据（场景/时间/天气/场景类型/BGM/角色、对话级与场景级的表情、动作、state_changes、voice_refs），并在字段冲突时使用 `value1 | value2` 串联保留全部线索；若对话缺少动作描述，会自动从 state_changes 补回最后一次动作描述。
+时间线模式下，元数据同样保留在 `ctx` 中（角色、表情、动作、场景、时间、天气、BGM、voice_refs、state_changes），并在 `timeline` 中用箭头序列呈现情感/动作演变；`timeline_flow` 去掉行号，用 `A -> B` 纯状态序列进一步提升信息密度。
 
 ### 辅助工具
 
@@ -122,8 +143,63 @@ python3 embedding_optimizer.py [输入文件] -o [输出文件] [参数]
 }
 ```
 
+高密度结构 (`--format dense`) 示例：使用短键名和单份文本表示，减少冗余字段并提升窗口信息密度。
+
+```json
+{
+  "id": "story_main_104_scene_001",
+  "scene": "story_main_104_scene_001",
+  "src": "story_main_104.txt",
+  "ctx": {
+    "loc": "学校_中庭",
+    "time": "morning",
+    "bgm": "bgm_023",
+    "chars": ["梢", "花帆"],
+    "voices": ["vo_adv_..."],
+    "state": [["梢", "emotion", "happy"]],
+    "emo": {"梢": "happy"}
+  },
+  "stats": {"tok": 450, "dlg": 8},
+  "script": [
+    {"c": "梢", "t": "早上好，花帆同学。", "e": "happy"},
+    {"c": "花帆", "t": "早上好，梢！"},
+    {"c": "narrator", "t": "晨光洒在学院中庭。"}
+  ],
+  "text": "[story_main_104_scene_001] loc:学校_中庭 | time:morning | bgm:bgm_023\n梢: 早上好，花帆同学。 [emo:happy]\n花帆: 早上好，梢！\n晨光洒在学院中庭。"
+}
+```
+
+关键帧时间线结构 (`--format timeline`) 示例：行内仅标注本行发生的关键帧，末尾附角色时间线，减少重复帧，提升信息密度并兼顾可读性。
+
+```json
+{
+  "id": "story_main_104_scene_001",
+  "scene": "story_main_104_scene_001",
+  "src": "story_main_104.txt",
+  "ctx": { "loc": "学校_中庭", "time": "morning", "chars": ["梢", "花帆"] },
+  "stats": { "tok": 450, "dlg": 8 },
+  "script": [
+    { "c": "梢", "t": "早上好，花帆同学。", "kf": ["emo:happy"] },
+    { "c": "花帆", "t": "早上好，梢！" },
+    { "c": "narrator", "t": "晨光洒在学院中庭。" }
+  ],
+  "timeline": {
+    "梢": { "emo": [["happy", 1]] }
+  },
+  "text": "[story_main_104_scene_001] loc:学校_中庭 | time:morning\n梢: 早上好，花帆同学。 {emo:happy}\n花帆: 早上好，梢！\n晨光洒在学院中庭。\n\n梢 timeline: emo happy@1"
+}
+```
+
+极简标签 (`--format timeline_compact`) 示例：去掉大括号，使用短前缀 `^emo:happy;act:wave` 以降低括号/引号占用。
+
+箭头序列 (`--format timeline_flow`) 示例：时间线只保留状态演变，用 `->` 串联，无行号，便于模型自行推断节奏。
+
 ## 📝 开发日志
 
+- **v2.4 (now)**:
+  - 新增关键帧时间线三档输出：`timeline`（行号+大括号）、`timeline_compact`（短标签无括号）、`timeline_flow`（箭头序列无行号），默认推荐使用 flow 以提升信息密度。
+  - 时间线格式下元数据无损保留在 `ctx`（角色、表情、动作、场景、时间、天气、BGM、voice_refs、state_changes），并用 `timeline` 表达情感/动作演变。
+  - 优化器/CSV 转换工具兼容新格式，行内/尾部时间线均可用于嵌入。
 - **v2.3**:
   - chunker 解析支持 `#` 注释式指令，新增场景级 actions/state_changes，统一规范化地点/时间/表情/动作等字段。
   - embedding_optimizer 现在默认使用全量元数据（含 voice_refs、state_changes、场景级表情/动作），冲突字段用 `A | B` 串联保留信息，并在清洗时从 state_changes 补回缺失的动作描述。

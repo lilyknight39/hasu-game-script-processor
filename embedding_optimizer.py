@@ -80,48 +80,102 @@ class EmbeddingOptimizer:
         """
         emotions = set()
         actions = set()
-        # 标准格式
-        meta = chunk.get('metadata') or chunk.get('meta') or {}
-        if meta:
-            if 'dialogues' in meta:
-                for dlg in meta['dialogues']:
-                    if dlg.get('emotion_before'):
-                        emotions.add(dlg['emotion_before'])
-                    if dlg.get('emotion_after'):
-                        emotions.add(dlg['emotion_after'])
-                    if dlg.get('action_desc'):
-                        actions.add(dlg['action_desc'])
-                    elif dlg.get('action'):
-                        actions.add(dlg['action'])
-                    if dlg.get('state_changes'):
-                        for chg in dlg['state_changes']:
-                            if chg.get('type') == 'emotion' and chg.get('value'):
-                                emotions.add(chg['value'])
-                            if chg.get('type') == 'action' and chg.get('value'):
-                                actions.add(chg['value'])
-            # 场景级元数据的情绪/动作/状态变化
-            for v in meta.get('emotions', {}).values():
-                if v:
-                    emotions.add(v)
-            for v in meta.get('actions', {}).values():
-                if v:
-                    actions.add(v)
-            for chg in meta.get('state_changes', []) or []:
-                if chg.get('type') == 'emotion' and chg.get('value'):
-                    emotions.add(chg['value'])
-                if chg.get('type') == 'action' and chg.get('value'):
-                    actions.add(chg['value'])
+        meta = chunk.get('metadata') or chunk.get('meta') or chunk.get('ctx') or {}
+        # 结构化对话
+        if 'dialogues' in meta:
+            for dlg in meta['dialogues']:
+                if dlg.get('emotion_before'):
+                    emotions.add(dlg['emotion_before'])
+                if dlg.get('emotion_after'):
+                    emotions.add(dlg['emotion_after'])
+                if dlg.get('action_desc'):
+                    actions.add(dlg['action_desc'])
+                elif dlg.get('action'):
+                    actions.add(dlg['action'])
+                if dlg.get('state_changes'):
+                    for chg in dlg['state_changes']:
+                        if chg.get('type') == 'emotion' and chg.get('value'):
+                            emotions.add(chg['value'])
+                        if chg.get('type') == 'action' and chg.get('value'):
+                            actions.add(chg['value'])
+        # dense 格式的 script
+        for row in chunk.get('script', []) or []:
+            emo = row.get('e')
+            if emo:
+                if isinstance(emo, list):
+                    emotions.update([e for e in emo if e])
+                elif isinstance(emo, str):
+                    emotions.add(emo)
+            act = row.get('a')
+            if act:
+                actions.add(act)
+            if row.get('chg'):
+                for chg in row['chg']:
+                    if len(chg) == 2:
+                        if chg[0] == 'emotion':
+                            emotions.add(chg[1])
+                        if chg[0] == 'action':
+                            actions.add(chg[1])
+        # timeline 格式的关键帧
+        for tracks in (chunk.get('timeline') or {}).values():
+            emo_track = tracks.get('emo', [])
+            act_track = tracks.get('act', [])
+            for emo_state in emo_track:
+                state = emo_state[0] if isinstance(emo_state, (list, tuple)) else emo_state
+                if state:
+                    emotions.add(state)
+            for act_state in act_track:
+                state = act_state[0] if isinstance(act_state, (list, tuple)) else act_state
+                if state:
+                    actions.add(state)
+        # 场景级元数据的情绪/动作/状态变化
+        for v in meta.get('emotions', {}).values():
+            if v:
+                emotions.add(v)
+        for v in meta.get('actions', {}).values():
+            if v:
+                actions.add(v)
+        state_meta = meta.get('state_changes', []) or []
+        for chg in state_meta:
+            c_type = None
+            c_val = None
+            if isinstance(chg, dict):
+                c_type = chg.get('type')
+                c_val = chg.get('value')
+            elif isinstance(chg, (list, tuple)):
+                if len(chg) >= 3:
+                    _, c_type, c_val = chg[0], chg[1], chg[2]
+                elif len(chg) >= 2:
+                    c_type, c_val = chg[0], chg[1]
+            if c_type == 'emotion' and c_val:
+                emotions.add(c_val)
+            if c_type == 'action' and c_val:
+                actions.add(c_val)
+        # state_emo/state_act 紧凑轨道
+        if isinstance(meta.get('state_emo'), dict):
+            for seq in meta['state_emo'].values():
+                for val in seq:
+                    if val:
+                        emotions.add(val)
+        if isinstance(meta.get('state_act'), dict):
+            for seq in meta['state_act'].values():
+                for val in seq:
+                    if val:
+                        actions.add(val)
         return f"Emotions: {', '.join(sorted(emotions))}\nActions: {', '.join(sorted(actions))}" if emotions or actions else ""
 
     def _collect_voice_refs(self, chunk: Dict) -> str:
         """
         收集语音引用（对话级 + 场景级），用于嵌入时保留声线/角色线索。
         """
-        meta = chunk.get('metadata') or chunk.get('meta') or {}
+        meta = chunk.get('metadata') or chunk.get('meta') or chunk.get('ctx') or {}
         voices = []
         for dlg in meta.get('dialogues', []) or []:
             if dlg.get('voice_ref'):
                 voices.append(dlg['voice_ref'])
+        for row in chunk.get('script', []) or []:
+            if row.get('v'):
+                voices.append(row['v'])
         voices.extend(meta.get('voice_refs', []) or meta.get('voices', []) or [])
         # 去重保持顺序
         seen = set()
@@ -131,6 +185,31 @@ class EmbeddingOptimizer:
                 seen.add(v)
                 uniq.append(v)
         return ', '.join(uniq)
+
+    def _get_content_text(self, chunk: Dict) -> str:
+        """
+        统一获取 chunk 文本内容:
+        - 标准/优化格式: content
+        - dense 格式: text
+        - 若仅有 script，则快速渲染为“角色: 文本”
+        """
+        if not chunk:
+            return ''
+        if chunk.get('content'):
+            return chunk['content']
+        if chunk.get('text'):
+            return chunk['text']
+        if chunk.get('script'):
+            lines = []
+            for row in chunk.get('script', []):
+                speaker = row.get('c') or 'narrator'
+                text = row.get('t', '')
+                if speaker and isinstance(speaker, str) and speaker.lower() != 'narrator':
+                    lines.append(f"{speaker}: {text}")
+                else:
+                    lines.append(text)
+            return "\n".join(lines)
+        return ''
 
     def _build_embedding_text(self, chunk: Dict) -> str:
         """构造和优化阶段一致的 embedding 输入文本 (meta + content)。"""
@@ -161,7 +240,8 @@ class EmbeddingOptimizer:
         if voice_text:
             meta_lines.append(f"VoiceRefs: {voice_text}")
         meta_text = "\n".join(meta_lines)
-        return f"{meta_text}\n\n{chunk['content']}"
+        content_text = self._get_content_text(chunk)
+        return f"{meta_text}\n\n{content_text}"
 
     def get_embedding(self, text: str) -> np.ndarray:
         """
@@ -294,6 +374,36 @@ class EmbeddingOptimizer:
                     return scene_val.split('_scene_', 1)[0] + '.txt'
             
             return value
+        elif 'ctx' in chunk:
+            ctx = chunk.get('ctx', {})
+            stats = chunk.get('stats', {})
+            if field == 'token_count':
+                return stats.get('tok') or stats.get('tokens') or 0
+            if field == 'dialogue_count':
+                return stats.get('dlg') or len(chunk.get('script', []))
+            if field == 'scene_id':
+                return chunk.get('scene', default)
+            if field == 'source_file':
+                return chunk.get('src', default)
+            if field == 'location':
+                return ctx.get('loc', default)
+            if field == 'time_period':
+                return ctx.get('time', default)
+            if field == 'weather':
+                return ctx.get('weather', default)
+            if field == 'scene_type':
+                return ctx.get('type', default)
+            if field == 'characters':
+                return ctx.get('chars', default)
+            if field == 'bgm':
+                return ctx.get('bgm', default)
+            if field == 'voice_refs':
+                return ctx.get('voices', default)
+            if field == 'actions':
+                return ctx.get('act', default)
+            if field == 'state_changes':
+                return ctx.get('state', default)
+            return chunk.get(field, default)
         return default
     
     def _get_chunk_id(self, chunk: Dict) -> str:
@@ -409,7 +519,7 @@ class EmbeddingOptimizer:
             合并后的chunk
         """
         # 合并内容
-        merged_content = chunk1['content'] + '\n---\n' + chunk2['content']
+        merged_content = self._get_content_text(chunk1) + '\n---\n' + self._get_content_text(chunk2)
         merged_tokens = self._estimate_tokens(merged_content)
         
         # 合并元数据 - 使用chunk1的格式
@@ -469,7 +579,7 @@ class EmbeddingOptimizer:
                 'overlap_prev': chunk1.get('overlap_prev', ''),
                 'merged_from': [self._get_chunk_id(chunk1), self._get_chunk_id(chunk2)]
             }
-        else:
+        elif 'meta' in chunk1:
             # 优化格式
             merged_meta = chunk1['meta'].copy()
             merged_meta['tokens'] = merged_tokens
@@ -503,6 +613,58 @@ class EmbeddingOptimizer:
                 'id': f"{self._get_chunk_id(chunk1)}_merged",
                 'content': merged_content,
                 'meta': merged_meta,
+                'merged_from': [self._get_chunk_id(chunk1), self._get_chunk_id(chunk2)]
+            }
+        else:
+            # dense 格式
+            merged_ctx = dict(chunk1.get('ctx', {}))
+            ctx2 = chunk2.get('ctx', {})
+            merged_ctx['chars'] = self._merge_unique_list(
+                merged_ctx.get('chars', []),
+                ctx2.get('chars', [])
+            )
+            merged_ctx['voices'] = self._merge_unique_list(
+                merged_ctx.get('voices', []),
+                ctx2.get('voices', [])
+            )
+            merged_ctx['emo'] = merged_ctx.get('emo') or ctx2.get('emo')
+            merged_ctx['act'] = merged_ctx.get('act') or ctx2.get('act')
+            merged_ctx['loc'] = self._choose_field(merged_ctx.get('loc'), ctx2.get('loc'))
+            merged_ctx['time'] = self._choose_field(merged_ctx.get('time'), ctx2.get('time'))
+            merged_ctx['weather'] = self._choose_field(merged_ctx.get('weather'), ctx2.get('weather'))
+            merged_ctx['type'] = self._choose_field(merged_ctx.get('type'), ctx2.get('type'))
+            merged_ctx['bgm'] = self._choose_field(merged_ctx.get('bgm'), ctx2.get('bgm'))
+            merged_state = []
+            seen_state = set()
+            for item in (merged_ctx.get('state', []) or []) + (ctx2.get('state', []) or []):
+                if item in (None, '', [], {}):
+                    continue
+                key = json.dumps(item, ensure_ascii=False, sort_keys=True) if isinstance(item, (dict, list)) else str(item)
+                if key not in seen_state:
+                    seen_state.add(key)
+                    merged_state.append(item)
+            if merged_state:
+                merged_ctx['state'] = merged_state
+            # 清理空字段
+            merged_ctx = {k: v for k, v in merged_ctx.items() if v not in (None, '', [], {})}
+
+            merged_script = (chunk1.get('script') or []) + (chunk2.get('script') or [])
+            merged_stats = {
+                'tok': merged_tokens,
+                'dlg': len(merged_script) or (
+                    self._get_field(chunk1, 'dialogue_count', 0) + self._get_field(chunk2, 'dialogue_count', 0)
+                )
+            }
+            return {
+                'id': f"{self._get_chunk_id(chunk1)}_merged",
+                'scene': self._choose_field(self._get_field(chunk1, 'scene_id', chunk1.get('scene')),
+                                            self._get_field(chunk2, 'scene_id', chunk2.get('scene'))),
+                'src': self._choose_field(self._get_field(chunk1, 'source_file', chunk1.get('src')),
+                                          self._get_field(chunk2, 'source_file', chunk2.get('src'))),
+                'ctx': merged_ctx,
+                'stats': merged_stats,
+                'script': merged_script,
+                'text': merged_content,
                 'merged_from': [self._get_chunk_id(chunk1), self._get_chunk_id(chunk2)]
             }
 
@@ -582,7 +744,24 @@ class EmbeddingOptimizer:
             for key in ['loc', 'time', 'bgm']:
                 if c['meta'].get(key) in ('', None, []):
                     c['meta'].pop(key, None)
-            
+        elif 'ctx' in c and 'script' in c:
+            cleaned_script = []
+            for row in c.get('script', []) or []:
+                cleaned_row = {k: v for k, v in row.items() if v not in (None, '', [], {})}
+                emo = cleaned_row.get('e')
+                if isinstance(emo, list) and len(emo) == 2 and emo[0] == emo[1]:
+                    cleaned_row['e'] = emo[0]
+                if cleaned_row.get('chg'):
+                    cleaned_row['chg'] = [chg for chg in cleaned_row['chg'] if chg not in (None, '', [], {})]
+                cleaned_script.append(cleaned_row)
+            c['script'] = cleaned_script
+            if not self.keep_voice_refs:
+                c.get('ctx', {}).pop('voices', None)
+            if not self.keep_emotions:
+                c.get('ctx', {}).pop('emo', None)
+            c['ctx'] = {k: v for k, v in c.get('ctx', {}).items() if v not in (None, '', [], {})}
+            if c.get('stats'):
+                c['stats'] = {k: v for k, v in c.get('stats', {}).items() if v not in (None, '', [], {})}
         # 移除结构冗余
         c.pop('parent_chunk_id', None)
         c.pop('overlap_prev', None)

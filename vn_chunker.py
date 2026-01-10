@@ -127,6 +127,374 @@ class Chunk:
             }
         }
 
+    def _build_dense_text(self, ctx: Dict, script: List[Dict]) -> str:
+        """
+        构建高密度文本表示：
+        - 使用精简的上下文头部 loc/time/weather/type/bgm
+        - 对话行使用短标注 (emo/act/chg)，旁白不加角色前缀
+        """
+        header_parts = []
+        header_map = [('loc', 'loc'), ('time', 'time'),
+                      ('weather', 'weather'), ('type', 'type'),
+                      ('bgm', 'bgm')]
+        for key, label in header_map:
+            val = ctx.get(key)
+            if val:
+                header_parts.append(f"{label}:{val}")
+        chars = ctx.get('chars', [])
+        header = f"[{self.chunk_id}]"
+        if header_parts:
+            header = f"{header} " + " | ".join(header_parts)
+
+        lines = []
+        for row in script:
+            speaker = row.get('c') or 'narrator'
+            text = row.get('t', '')
+            annotations = []
+            emo = row.get('e')
+            if emo:
+                if isinstance(emo, list) and len(emo) >= 2:
+                    before = emo[0]
+                    after = emo[1] if len(emo) > 1 else None
+                    if before and after and before != after:
+                        annotations.append(f"emo:{before}->{after}")
+                    else:
+                        annotations.append(f"emo:{after or before}")
+                else:
+                    annotations.append(f"emo:{emo}")
+            if row.get('a'):
+                annotations.append(f"act:{row['a']}")
+            if row.get('chg'):
+                state_tags = [f"{c[0]}:{c[1]}" for c in row['chg'] if len(c) == 2 and all(c)]
+                if state_tags:
+                    annotations.append("chg:" + ";".join(state_tags))
+            tail = f" [{' | '.join(annotations)}]" if annotations else ""
+            if speaker.lower() == 'narrator':
+                lines.append(f"{text}{tail}")
+            else:
+                lines.append(f"{speaker}: {text}{tail}")
+
+        # 如果没有结构化对话，则回退到原始content
+        if not lines and self.content:
+            return self.content
+
+        return header + "\n" + "\n".join(lines)
+
+    def to_dense_dict(self) -> Dict:
+        """
+        生成高密度结构化格式:
+        - ctx 使用短键名，去掉空字段
+        - script 压缩对话行，短键名并去掉空值
+        - stats 收录 token/对话统计
+        - text 为带上下文头的紧凑文本，便于直接用于向量化
+        """
+        meta = self.metadata
+
+        # 压缩对话行
+        script = []
+        for dlg in meta.dialogues:
+            line = {
+                'c': dlg.get('character', 'narrator'),
+                't': dlg.get('text', '')
+            }
+            if dlg.get('voice_ref'):
+                line['v'] = dlg['voice_ref']
+            e_bef = dlg.get('emotion_before')
+            e_aft = dlg.get('emotion_after')
+            if e_bef or e_aft:
+                if e_bef and e_aft and e_bef != e_aft:
+                    line['e'] = [e_bef, e_aft]
+                else:
+                    line['e'] = e_aft or e_bef
+            act = dlg.get('action_desc') or dlg.get('action')
+            if act:
+                line['a'] = act
+            if dlg.get('state_changes'):
+                compact_changes = []
+                for change in dlg['state_changes']:
+                    c_type = change.get('type')
+                    c_val = change.get('value')
+                    if c_type and c_val:
+                        compact_changes.append([c_type, c_val])
+                if compact_changes:
+                    line['chg'] = compact_changes
+            # 去掉空字段
+            line = {k: v for k, v in line.items() if v not in (None, '', [], {})}
+            if line.get('t'):
+                script.append(line)
+
+        # 压缩上下文
+        ctx = {
+            'loc': meta.location,
+            'time': meta.time_period,
+            'weather': meta.weather,
+            'type': meta.scene_type,
+            'bgm': meta.bgm,
+            'chars': meta.characters
+        }
+        if meta.voice_refs:
+            ctx['voices'] = meta.voice_refs
+        if meta.state_changes:
+            compact_state = []
+            for change in meta.state_changes:
+                char = change.get('character')
+                c_type = change.get('type')
+                c_val = change.get('value')
+                if char and c_type and c_val:
+                    compact_state.append([char, c_type, c_val])
+            if compact_state:
+                ctx['state'] = compact_state
+        if meta.emotions:
+            ctx['emo'] = meta.emotions
+        if meta.actions:
+            ctx['act'] = meta.actions
+        ctx = {k: v for k, v in ctx.items() if v not in (None, '', [], {})}
+
+        stats = {
+            'tok': meta.token_count,
+            'dlg': meta.dialogue_count
+        }
+
+        dense_text = self._build_dense_text(ctx, script)
+
+        return {
+            'id': self.chunk_id,
+            'scene': meta.scene_id,
+            'src': meta.source_file,
+            'ctx': ctx,
+            'stats': stats,
+            'script': script,
+            'text': dense_text
+        }
+
+    def _build_timeline_payload(self) -> Tuple[List[Dict], Dict[str, Dict[str, List[List]]]]:
+        """
+        根据结构化对话生成关键帧脚本与时间线:
+        - script 行保留 c/t/v，新增 kf（本行发生的关键帧标签列表）
+        - timeline 为每个角色的 emo/act 变化节点列表 [[state, line_idx], ...]
+        """
+        script = []
+        narrator_buffer: List[str] = []
+        timeline: Dict[str, Dict[str, List[List]]] = {}
+        last_emo: Dict[str, Optional[str]] = {}
+        last_act: Dict[str, Optional[str]] = {}
+
+        for idx, dlg in enumerate(self.metadata.dialogues, 1):
+            char = dlg.get('character', 'narrator') or 'narrator'
+            text = dlg.get('text', '')
+            voice_ref = dlg.get('voice_ref')
+            kf_labels: List[str] = []
+
+            def flush_narrator():
+                nonlocal narrator_buffer
+                if narrator_buffer:
+                    merged_text = ' '.join(narrator_buffer).strip()
+                    if merged_text:
+                        script.append({'c': 'narrator', 't': merged_text, 'kf': ['nar:block']})
+                    narrator_buffer = []
+
+            def ensure_track(c: str):
+                if c not in timeline:
+                    timeline[c] = {'emo': [], 'act': []}
+
+            # 情感关键帧：前置状态与后置状态若产生变化则记录
+            emo_before = dlg.get('emotion_before')
+            emo_after = dlg.get('emotion_after')
+            if emo_before and emo_before != last_emo.get(char):
+                ensure_track(char)
+                last_emo[char] = emo_before
+                timeline[char]['emo'].append([emo_before, idx])
+                kf_labels.append(f"emo:{emo_before}")
+            if emo_after and emo_after != last_emo.get(char):
+                ensure_track(char)
+                last_emo[char] = emo_after
+                timeline[char]['emo'].append([emo_after, idx])
+                kf_labels.append(f"emo→:{emo_after}")
+
+            # 动作关键帧：优先动作描述
+            action_val = dlg.get('action_desc') or dlg.get('action')
+            if action_val and action_val != last_act.get(char):
+                ensure_track(char)
+                last_act[char] = action_val
+                timeline[char]['act'].append([action_val, idx])
+                kf_labels.append(f"act:{action_val}")
+
+            if char == 'narrator':
+                narrator_buffer.append(text)
+                continue
+
+            flush_narrator()
+
+            row = {'c': char, 't': text}
+            if voice_ref:
+                row['v'] = voice_ref
+            if kf_labels:
+                row['kf'] = kf_labels
+            script.append(row)
+
+        # 处理尾部剩余旁白
+        if narrator_buffer:
+            merged_text = ' '.join(narrator_buffer).strip()
+            if merged_text:
+                script.append({'c': 'narrator', 't': merged_text, 'kf': ['nar:block']})
+
+        # 清理空轨道
+        cleaned_timeline = {
+            c: {k: v for k, v in tracks.items() if v}
+            for c, tracks in timeline.items()
+            if any(tracks.values())
+        }
+        return script, cleaned_timeline
+
+    def _render_timeline_text(self, ctx: Dict, script: List[Dict], timeline: Dict[str, Dict[str, List[List]]],
+                               compact_tags: bool = False, drop_positions: bool = False) -> str:
+        """
+        渲染带关键帧行内提示与尾部时间线汇总的文本。
+        """
+        header_parts = []
+        header_map = [('loc', 'loc'), ('time', 'time'), ('weather', 'weather'), ('type', 'type'), ('bgm', 'bgm')]
+        for key, label in header_map:
+            val = ctx.get(key)
+            if val:
+                header_parts.append(f"{label}:{val}")
+        header = f"[{self.chunk_id}]"
+        if header_parts:
+            header = f"{header} " + " | ".join(header_parts)
+
+        lines = [header]
+        for row in script:
+            speaker = row.get('c') or 'narrator'
+            text = row.get('t', '')
+            tag = ''
+            if row.get('kf'):
+                if compact_tags:
+                    tag = " ^" + ";".join(row['kf'])
+                else:
+                    tag = " {" + ", ".join(row['kf']) + "}"
+            if speaker.lower() == 'narrator':
+                lines.append(f"{text}{tag}")
+            else:
+                lines.append(f"{speaker}: {text}{tag}")
+
+        if timeline:
+            lines.append("")  # 空行分隔
+            for char, tracks in timeline.items():
+                track_parts = []
+                emo_track = tracks.get('emo', [])
+                act_track = tracks.get('act', [])
+                if emo_track:
+                    if drop_positions:
+                        states = [item if isinstance(item, str) else item[0] for item in emo_track]
+                        emo_seq = " -> ".join(states)
+                    else:
+                        emo_seq = " -> ".join([f"{state}@{line}" for state, line in emo_track])
+                    track_parts.append(f"emo {emo_seq}")
+                if act_track:
+                    if drop_positions:
+                        states = [item if isinstance(item, str) else item[0] for item in act_track]
+                        act_seq = " -> ".join(states)
+                    else:
+                        act_seq = " -> ".join([f"{state}@{line}" for state, line in act_track])
+                    track_parts.append(f"act {act_seq}")
+                if track_parts:
+                    lines.append(f"{char} timeline: " + " | ".join(track_parts))
+
+        return "\n".join(lines)
+
+    def to_timeline_dict(self, compact_tags: bool = False, drop_positions: bool = False) -> Dict:
+        """
+        生成关键帧/时间线格式:
+        - script 使用 kf 表示本行关键帧标签
+        - timeline 汇总每个角色的 emo/act 变化节点
+        - text 同时包含行内提示与尾部时间线摘要
+        - compact_tags: 行内标签使用 ^tag 而非 {...}
+        - drop_positions: 时间线不带行号，只保留状态序列（使用 -> 连接）
+        """
+        meta = self.metadata
+
+        # 如果缺少结构化对话，回退到 dense
+        if not meta.dialogues:
+            dense = self.to_dense_dict()
+            dense['timeline'] = {}
+            return dense
+
+        script, timeline = self._build_timeline_payload()
+
+        if drop_positions:
+            # 仅保留状态序列，去掉行号
+            clean_timeline = {}
+            for char, tracks in timeline.items():
+                cleaned_tracks = {}
+                for kind in ['emo', 'act']:
+                    seq = tracks.get(kind, [])
+                    states = []
+                    last = None
+                    for item in seq:
+                        state = item if isinstance(item, str) else item[0]
+                        if state and state != last:
+                            states.append(state)
+                            last = state
+                    if states:
+                        cleaned_tracks[kind] = states
+                if cleaned_tracks:
+                    clean_timeline[char] = cleaned_tracks
+            timeline = clean_timeline
+
+        ctx_items = [
+            ('loc', meta.location),
+            ('time', meta.time_period),
+            ('weather', meta.weather),
+            ('type', meta.scene_type),
+            ('bgm', meta.bgm),
+            ('chars', meta.characters),
+            ('voices', meta.voice_refs if meta.voice_refs else None),
+            ('emo', meta.emotions if meta.emotions else None),
+            ('act', meta.actions if meta.actions else None),
+        ]
+        if meta.state_changes:
+            state_emo: Dict[str, List[str]] = {}
+            state_act: Dict[str, List[str]] = {}
+            for change in meta.state_changes:
+                char = change.get('character')
+                c_type = change.get('type')
+                c_val = change.get('value')
+                if char and c_type and c_val:
+                    if c_type == 'emotion':
+                        state_emo.setdefault(char, []).append(c_val)
+                    elif c_type == 'action':
+                        state_act.setdefault(char, []).append(c_val)
+            # 去除连续重复
+            def dedup_seq(seq: List[str]) -> List[str]:
+                deduped = []
+                last = None
+                for v in seq:
+                    if v != last:
+                        deduped.append(v)
+                        last = v
+                return deduped
+            state_emo = {k: dedup_seq(v) for k, v in state_emo.items() if v}
+            state_act = {k: dedup_seq(v) for k, v in state_act.items() if v}
+            ctx_items.append(('state_emo', state_emo if state_emo else None))
+            ctx_items.append(('state_act', state_act if state_act else None))
+        ctx = {k: v for k, v in ctx_items if v not in (None, '', [], {})}
+        stats = {
+            'tok': meta.token_count,
+            'dlg': len(script)
+        }
+
+        text = self._render_timeline_text(ctx, script, timeline, compact_tags=compact_tags, drop_positions=drop_positions)
+
+        return {
+            'id': self.chunk_id,
+            'scene': meta.scene_id,
+            'src': meta.source_file,
+            'ctx': {k: v for k, v in ctx.items() if v not in (None, '', [], {})},
+            'stats': stats,
+            'script': script,
+            'timeline': timeline,
+            'text': text
+        }
+
 
 class VisualNovelChunker:
     """Visual Novel剧本智能分块器"""
@@ -1297,14 +1665,14 @@ class VisualNovelChunker:
         
         return chunks
     
-    def process_directory(self, directory: str, output_file: str, optimize: bool = False):
+    def process_directory(self, directory: str, output_file: str, export_format: str = "standard"):
         """
         批量处理目录下所有txt文件
         
         Args:
             directory: 输入目录
             output_file: 输出JSON文件路径
-            optimize: 是否使用优化格式输出
+            export_format: 输出格式 (standard|optimized|dense|timeline)
         """
         txt_files = list(Path(directory).glob('*.txt'))
         
@@ -1338,18 +1706,30 @@ class VisualNovelChunker:
         logger.info(f"总共生成 {len(all_chunks)} 个chunks")
         
         # 导出为JSON
-        self.export_to_json(all_chunks, output_file, optimize=optimize)
+        self.export_to_json(all_chunks, output_file, export_format=export_format)
     
-    def export_to_json(self, chunks: List[Chunk], output_file: str, optimize: bool = False):
+    def export_to_json(self, chunks: List[Chunk], output_file: str, export_format: str = "standard"):
         """
         导出chunks到JSON文件（Dify兼容格式）
         
         Args:
             chunks: chunk列表
             output_file: 输出文件路径
-            optimize: 是否使用优化格式(压缩,适合embedding workflow)
+            export_format: 输出格式 (standard|optimized|dense|timeline)
         """
-        if optimize:
+        if export_format == "timeline":
+            output_data = [chunk.to_timeline_dict() for chunk in chunks]
+            logger.info("使用 timeline 关键帧格式导出 (行内关键帧 + 角色时间线)")
+        elif export_format == "timeline_compact":
+            output_data = [chunk.to_timeline_dict(compact_tags=True) for chunk in chunks]
+            logger.info("使用 timeline_compact 关键帧格式导出 (无括号短标签)")
+        elif export_format == "timeline_flow":
+            output_data = [chunk.to_timeline_dict(compact_tags=True, drop_positions=True) for chunk in chunks]
+            logger.info("使用 timeline_flow 关键帧格式导出 (短标签 + 去行号，使用箭头序列)")
+        elif export_format == "dense":
+            output_data = [chunk.to_dense_dict() for chunk in chunks]
+            logger.info("使用 dense 高密度格式导出 (精简上下文键名, 单份文本表示)")
+        elif export_format == "optimized":
             # 使用优化格式
             output_data = [chunk.to_optimized_dict() for chunk in chunks]
             logger.info(f"使用优化格式导出 (移除冗余字段,压缩dialogues)")
@@ -1411,7 +1791,17 @@ def main():
     parser.add_argument('--fine-grained', action='store_true', 
                        help='细粒度模式（配合embedding optimizer使用，产生更多小chunks）')
     parser.add_argument('--optimized', action='store_true',
-                       help='使用优化格式导出(压缩,移除冗余字段,适合embedding workflow)')
+                       help='使用优化格式导出(压缩,移除冗余字段,适合embedding workflow) -- 已被 --format 取代，但保留兼容')
+    parser.add_argument('--format', choices=['standard', 'optimized', 'dense', 'timeline', 'timeline_compact', 'timeline_flow'], default='standard',
+                       help='输出格式：standard(默认) | optimized(压缩字段) | dense(高密度结构化) | timeline(关键帧时间线) | timeline_compact(关键帧短标签) | timeline_flow(箭头序列，无行号)')
+    parser.add_argument('--dense', action='store_true',
+                       help='快捷开关，等价于 --format dense')
+    parser.add_argument('--timeline', action='store_true',
+                       help='快捷开关，等价于 --format timeline')
+    parser.add_argument('--timeline-compact', dest='timeline_compact', action='store_true',
+                       help='快捷开关，等价于 --format timeline_compact')
+    parser.add_argument('--timeline-flow', dest='timeline_flow', action='store_true',
+                       help='快捷开关，等价于 --format timeline_flow')
     
     args = parser.parse_args()
     
@@ -1425,7 +1815,18 @@ def main():
     )
     
     # 处理目录
-    chunker.process_directory(args.input_dir, args.output, optimize=args.optimized)
+    export_format = args.format
+    if getattr(args, 'timeline_flow', False):
+        export_format = 'timeline_flow'
+    elif getattr(args, 'timeline_compact', False):
+        export_format = 'timeline_compact'
+    elif args.timeline:
+        export_format = 'timeline'
+    elif args.dense:
+        export_format = 'dense'
+    elif args.optimized:
+        export_format = 'optimized'
+    chunker.process_directory(args.input_dir, args.output, export_format=export_format)
 
 
 if __name__ == '__main__':
