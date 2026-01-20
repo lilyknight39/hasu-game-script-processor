@@ -19,7 +19,7 @@
 
 ```bash
 # 基本用法
-python3 vn_chunker.py txt/ --fine-grained -o chunks.json 
+python3 vn_chunker.py txt/ --fine-grained -o timeline_flow_chunks.json --format timeline_flow
 ```
 
 ### 2. 语义优化与清洗 (Optimization & Cleaning)
@@ -28,7 +28,7 @@ python3 vn_chunker.py txt/ --fine-grained -o chunks.json
 
 ```bash
 # 语义合并 + 自动数据清洗
-python3 embedding_optimizer.py chunks.json -o optimized_final.json
+python3 embedding_optimizer.py timeline_flow_chunks.json -o timeline_flow_optimized.json
 ```
 
 *(注意：此步骤已集成原本独立的 `optimizer.py` 功能，无需额外运行其他脚本)*
